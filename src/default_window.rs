@@ -23,8 +23,6 @@ pub struct MainWindow {
     pub start_server_capable: bool,
     pub proxy_event_sender: Sender<ProxyEvent>,
     pub proxy_status: Arc<Mutex<ProxyEvent>>,
-    // pub request_event_sender: Sender<RequestEvent>,
-    // pub request_list: Arc<Mutex<Vec<String>>>,
 }
 
 #[derive(Debug)]
@@ -35,12 +33,6 @@ pub enum ProxyEvent {
     Terminating,
     Terminated,
 }
-
-// #[derive(Debug)]
-// pub enum RequestEvent {
-//     PreviousRequests { uri: String },
-//     BlockedRequests { uri: String },
-// }
 
 impl Default for MainWindow {
     fn default() -> Self {
@@ -75,26 +67,6 @@ impl Default for MainWindow {
             }
         });
 
-        // let (request_event_sender, request_event_receiver) = channel::<RequestEvent>();
-        // let all_request_events = Arc::new(Mutex::new(Vec::<String>::new()));
-        // let request_event_clone = Arc::clone(&all_request_events);
-
-        // thread::spawn(move || loop {
-        //     match request_event_receiver.recv() {
-        //         Ok(event) => match event {
-        //             RequestEvent::PreviousRequests { uri } => {
-        //                 let mut status = request_event_clone.lock().unwrap();
-        //                 status.push(uri);
-        //             }
-        //             RequestEvent::BlockedRequests { uri } => todo!(),
-        //         },
-        //         Err(_) => {
-        //             // This will likely run multiple times as it's closing down
-        //             // Don't log here
-        //         }
-        //     }
-        // });
-
         Self {
             close_button_tint: Color32::WHITE,
             minimise_button_tint: Color32::WHITE,
@@ -105,8 +77,6 @@ impl Default for MainWindow {
             start_server_capable: false,
             proxy_event_sender: proxy_event_sender.clone(),
             proxy_status: proxy_event,
-            // request_event_sender: request_event_sender.clone(),
-            // request_list: all_request_events,
         }
     }
 }
