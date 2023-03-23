@@ -1,0 +1,18 @@
+<svg
+  height="21"
+  viewBox="0 0 21 21"
+  width="21"
+  xmlns="http://www.w3.org/2000/svg"
+  stroke="white"
+>
+  <g
+    fill="none"
+    fill-rule="evenodd"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    transform="translate(2 3)"
+  >
+    <circle cx="8.5" cy="8.5" r="8" stroke-width="1.2" />
+    <path d="m4.25 8.5h8.5" />
+  </g>
+</svg>
