@@ -8,7 +8,7 @@ use std::{
 
 use eframe::{
     egui::{self, CentralPanel},
-    epaint::{Color32, Stroke},
+    epaint::{Color32, Stroke, Vec2},
 };
 
 use crate::{main_body, task_bar};
@@ -23,6 +23,8 @@ pub struct MainWindow {
     pub start_server_capable: bool,
     pub proxy_event_sender: Sender<ProxyEvent>,
     pub proxy_status: Arc<Mutex<ProxyEvent>>,
+
+    pub show_logs: bool,
 }
 
 #[derive(Debug)]
@@ -72,11 +74,13 @@ impl Default for MainWindow {
             minimise_button_tint: Color32::WHITE,
             maximise_button_tint: Color32::WHITE,
 
-            port: String::default(),
+            port: String::from("8000"),
             port_error: String::default(),
             start_server_capable: false,
             proxy_event_sender: proxy_event_sender.clone(),
             proxy_status: proxy_event,
+
+            show_logs: false,
         }
     }
 }
@@ -87,6 +91,12 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.show_logs && !frame.info().window_info.maximized {
+            frame.set_window_size(Vec2 { x: 650.0, y: 200.0 });
+        } else if !self.show_logs && !frame.info().window_info.maximized {
+            frame.set_window_size(Vec2 { x: 250.0, y: 140.0 });
+        }
+
         let panel_frame = egui::Frame {
             fill: ctx.style().visuals.window_fill(),
             rounding: 7.0.into(),
@@ -98,12 +108,7 @@ impl eframe::App for MainWindow {
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 task_bar::task_bar(self, ui, frame);
-                main_body::main_body(
-                    self,
-                    ui,
-                    self.proxy_event_sender.clone(),
-                    // self.request_event_sender.clone(),
-                );
+                main_body::main_body(self, ui, self.proxy_event_sender.clone());
             });
         });
     }

@@ -1,4 +1,5 @@
 use crate::default_window::ProxyEvent;
+use colored::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::upgrade::Upgraded;
 use hyper::{http, Body, Client, Method, Request, Response, Server};
@@ -25,7 +26,7 @@ fn handle_termination(
 
         match *current_proxy_state {
             ProxyEvent::Terminating => {
-                println!("Terminating Service.");
+                println!("{}", "Terminating Service.".red());
                 shutdown_sig.send(()).unwrap();
                 break;
             }
@@ -43,7 +44,6 @@ pub async fn proxy_service(
     addr: SocketAddr,
     proxy_event_sender: mpsc::Sender<ProxyEvent>,
     status: Arc<Mutex<ProxyEvent>>,
-    // request_event_sender: mpsc::Sender<RequestEvent>,
 ) {
     let addr = addr;
 
@@ -108,6 +108,22 @@ impl Proxy {
     async fn proxy(self) -> Result<Response<Body>, hyper::Error> {
         // Check if address is within blocked list, send FORBIDDEN response on bad request
         let blocked_address = Self::is_blocked_addr(self.req.uri().to_string());
+
+        println!(
+            "{} {} {}",
+            if blocked_address {
+                "ADVERT:".red()
+            } else {
+                "REQUEST:".green()
+            },
+            self.req.uri().to_string().blue(),
+            if blocked_address {
+                "-> BLOCKED".red()
+            } else {
+                "-> ALLOWED".green()
+            }
+        );
+
         if blocked_address {
             let mut resp = Response::new(Body::from("Oopsie Whoopsie!"));
             *resp.status_mut() = http::StatusCode::FORBIDDEN;
