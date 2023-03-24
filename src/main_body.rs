@@ -1,13 +1,13 @@
 use std::{net::SocketAddr, sync::mpsc::Sender, thread};
 
 use eframe::{
-    egui::{self, CentralPanel, Margin, RichText, TextEdit},
+    egui::{self, scroll_area, CentralPanel, Margin, RichText, TextEdit},
     epaint::{Color32, Vec2},
 };
 
 use crate::{
     default_window::{MainWindow, ProxyEvent},
-    proxy_handler::proxy_service,
+    proxy_handler::{proxy_service, read_from_csv},
 };
 
 pub fn main_body(
@@ -152,7 +152,6 @@ fn control_panel(
                             SocketAddr::from(([127, 0, 0, 1], port_copy)),
                             proxy_event_sender,
                             proxy_status,
-                            // request_event_sender,
                         )
                     });
                 }
@@ -197,20 +196,56 @@ fn control_panel(
 
 fn logs_panel(properties: &mut MainWindow, ui: &mut egui::Ui) {
     if properties.show_logs {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                let close_logs = egui::Button::new("wow!").min_size(Vec2 {
-                    x: ui.available_width(),
-                    y: ui.available_height(),
+        ui.allocate_ui_with_layout(
+            Vec2 {
+                x: ui.available_width(),
+                y: ui.available_height(),
+            },
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.vertical(|ui| {
+                    ui.label("Allow List:");
+                    ui.add_space(4.);
+                    ui.group(|ui| {
+                        // TODO: Create struct for CSV reading
+                        // Struct { values }
+                        // Impl { new -> get values to self, save -> rewrite new values to file, clear -> remove values from file }
+                        let whitelist = read_from_csv::<String>("./src/whitelist.csv").unwrap();
+                        let num_rows = whitelist.clone().into_iter().count();
+
+                        let mut checked = false;
+                        egui::ScrollArea::new([false, true])
+                            .auto_shrink([false, false])
+                            .max_height(ui.available_height() / 3.0)
+                            .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                for row in row_range {
+                                    let string_value = match whitelist.get(row) {
+                                        Some(value) => value,
+                                        _ => "No value found",
+                                    };
+                                    ui.checkbox(&mut checked, format!("{}", string_value));
+                                }
+                            });
+                    });
                 });
 
-                let close_logs_response = ui.add(close_logs);
-
-                if close_logs_response.clicked() {
-                    properties.show_logs = false;
-                }
-            });
-        });
+                ui.add_space(6.);
+                ui.label("Request Log:");
+                ui.add_space(4.);
+                ui.push_id("poop", |ui| {
+                    ui.group(|ui| {
+                        let num_rows = 12;
+                        let mut _checked = false;
+                        egui::ScrollArea::new([false, true])
+                            .auto_shrink([false, false])
+                            .max_height(ui.available_height())
+                            .show_rows(ui, 18.0, num_rows, |_ui, _row_range| {
+                                // TODO: Loop through Vec<RequestList>
+                            });
+                    });
+                });
+            },
+        );
     }
 }
 
@@ -236,7 +271,7 @@ fn control_panel_2(
 
     // Create UI in downward direction
     // use height of base app as we don't want to full up the entire space horizontally
-    // Use current height as we want to fill up the entire space vertically
+    // Use current height as we want to fill up the entire space vertically]
     ui.allocate_ui_with_layout(
         Vec2 {
             x: 230.,
@@ -244,90 +279,95 @@ fn control_panel_2(
         },
         egui::Layout::top_down_justified(egui::Align::Min),
         |ui| {
-            // Label and Port input
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.label(RichText::new("Enter a Port to run on:").size(13.0));
-                ui.add_space(2.0);
+            // TODO: Do I want this in a group? Does it look dumb?
+            ui.group(|ui| {
+                // Label and Port input
+                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.label(RichText::new("Enter a Port to run on:").size(13.0));
+                    ui.add_space(2.0);
 
-                let input = TextEdit::singleline(&mut properties.port)
-                    .hint_text("Port, e.g. 8000")
-                    .vertical_align(eframe::emath::Align::Center)
-                    .min_size(Vec2 {
-                        x: ui.available_width(),
-                        y: 20.0,
-                    });
-
-                if ui.add(input).changed() {
-                    // Do changed stuff
-                }
-            });
-
-            // Display Address Proxy is running on
-            if current_proxy_status == "RUNNING" {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                    ui.add(egui::Label::new("Hosting on: "));
-                    ui.add(egui::Label::new(
-                        RichText::new(format!("127.0.0.1:{}", properties.port))
-                            .color(Color32::LIGHT_GREEN),
-                    ));
-                });
-            }
-
-            // Proxy Control buttons
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                    if current_proxy_status == "RUNNING" {
-                        let stop_button = egui::Button::new("Stop Proxy").min_size(Vec2 {
-                            x: ui.available_width() / 2.,
-                            y: 18.,
-                        });
-
-                        if ui
-                            .add_enabled(properties.start_server_capable, stop_button)
-                            .clicked()
-                        {
-                            proxy_event_sender.send(ProxyEvent::Terminating).unwrap();
-                        }
-                    } else {
-                        let start_button_text = RichText::new(match current_proxy_status {
-                            "RUNNING" => "Retry Proxy",
-                            _ => "Start Proxy",
-                        })
-                        .size(13.0);
-
-                        let start_button = egui::Button::new(start_button_text).min_size(Vec2 {
-                            x: ui.available_width() / 2.,
-                            y: 18.,
-                        });
-
-                        if ui
-                            .add_enabled(properties.start_server_capable, start_button)
-                            .clicked()
-                        {
-                            let port_copy = properties.port.trim().parse::<u16>().unwrap().clone();
-                            let proxy_status = properties.proxy_status.clone();
-
-                            // Create a thread and assign the server to it
-                            // This stops the UI from freezing
-                            thread::spawn(move || {
-                                proxy_service(
-                                    SocketAddr::from(([127, 0, 0, 1], port_copy)),
-                                    proxy_event_sender,
-                                    proxy_status,
-                                )
-                            });
-                        }
-                    }
-
-                    let logs_button = egui::Button::new(RichText::new("View Logs").size(13.0))
+                    let input = TextEdit::singleline(&mut properties.port)
+                        .hint_text("Port, e.g. 8000")
+                        .vertical_align(eframe::emath::Align::Center)
                         .min_size(Vec2 {
                             x: ui.available_width(),
-                            y: 18.,
+                            y: 20.0,
                         });
 
-                    if ui.add_enabled(true, logs_button).clicked() {
-                        properties.show_logs = !properties.show_logs;
+                    if ui.add(input).changed() {
+                        // Do changed stuff
                     }
+                });
+
+                // Display Address Proxy is running on
+                if current_proxy_status == "RUNNING" {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                        ui.add(egui::Label::new("Hosting on: "));
+                        ui.add(egui::Label::new(
+                            RichText::new(format!("127.0.0.1:{}", properties.port))
+                                .color(Color32::LIGHT_GREEN),
+                        ));
+                    });
+                }
+
+                // Proxy Control buttons
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                        if current_proxy_status == "RUNNING" {
+                            let stop_button = egui::Button::new("Stop Proxy").min_size(Vec2 {
+                                x: ui.available_width() / 2.,
+                                y: 18.,
+                            });
+
+                            if ui
+                                .add_enabled(properties.start_server_capable, stop_button)
+                                .clicked()
+                            {
+                                proxy_event_sender.send(ProxyEvent::Terminating).unwrap();
+                            }
+                        } else {
+                            let start_button_text = RichText::new(match current_proxy_status {
+                                "RUNNING" => "Retry Proxy",
+                                _ => "Start Proxy",
+                            })
+                            .size(13.0);
+
+                            let start_button =
+                                egui::Button::new(start_button_text).min_size(Vec2 {
+                                    x: ui.available_width() / 2.,
+                                    y: 18.,
+                                });
+
+                            if ui
+                                .add_enabled(properties.start_server_capable, start_button)
+                                .clicked()
+                            {
+                                let port_copy =
+                                    properties.port.trim().parse::<u16>().unwrap().clone();
+                                let proxy_status = properties.proxy_status.clone();
+
+                                // Create a thread and assign the server to it
+                                // This stops the UI from freezing
+                                thread::spawn(move || {
+                                    proxy_service(
+                                        SocketAddr::from(([127, 0, 0, 1], port_copy)),
+                                        proxy_event_sender,
+                                        proxy_status,
+                                    )
+                                });
+                            }
+                        }
+
+                        let logs_button = egui::Button::new(RichText::new("View Logs").size(13.0))
+                            .min_size(Vec2 {
+                                x: ui.available_width(),
+                                y: 18.,
+                            });
+
+                        if ui.add_enabled(true, logs_button).clicked() {
+                            properties.show_logs = !properties.show_logs;
+                        }
+                    });
                 });
             });
         },

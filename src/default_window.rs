@@ -92,7 +92,7 @@ impl eframe::App for MainWindow {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.show_logs && !frame.info().window_info.maximized {
-            frame.set_window_size(Vec2 { x: 650.0, y: 200.0 });
+            frame.set_window_size(Vec2 { x: 650.0, y: 500.0 });
         } else if !self.show_logs && !frame.info().window_info.maximized {
             frame.set_window_size(Vec2 { x: 250.0, y: 140.0 });
         }

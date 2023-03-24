@@ -192,7 +192,7 @@ impl Proxy {
     }
 }
 
-fn read_from_csv<CSVRecord>(file_path: &str) -> Result<Vec<CSVRecord>, std::io::Error>
+pub fn read_from_csv<CSVRecord>(file_path: &str) -> Result<Vec<CSVRecord>, std::io::Error>
 where
     CSVRecord: DeserializeOwned,
 {
