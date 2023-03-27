@@ -55,11 +55,14 @@ pub async fn proxy_service(
         .http1_preserve_header_case(true)
         .build_http();
 
+    // let (sender, receiver) = mpsc::channel::<String>();
+    let sender = proxy_event_sender.clone();
     let make_service = make_service_fn(move |_| {
         let client = client.clone();
+        let send2 = sender.clone();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                let new_proxy = Proxy::new(client.clone(), req);
+                let new_proxy = ProxyHandler::new(client.clone(), req, send2.clone());
                 new_proxy.proxy()
             }))
         }
@@ -95,39 +98,39 @@ pub async fn proxy_service(
     }
 }
 
-struct Proxy {
+struct ProxyHandler {
     client: HttpClient,
     req: Request<Body>,
+    sender: mpsc::Sender<ProxyEvent>,
 }
 
-impl Proxy {
-    pub fn new(client: HttpClient, req: Request<Body>) -> Self {
-        Self { client, req }
+impl ProxyHandler {
+    pub fn new(
+        client: HttpClient,
+        req: Request<Body>,
+        sender: std::sync::mpsc::Sender<ProxyEvent>,
+    ) -> Self {
+        Self {
+            client,
+            req,
+            sender,
+        }
     }
 
     async fn proxy(self) -> Result<Response<Body>, hyper::Error> {
         // Check if address is within blocked list, send FORBIDDEN response on bad request
         let blocked_address = Self::is_blocked_addr(self.req.uri().to_string());
 
-        println!(
-            "{} {} {}",
-            if blocked_address {
-                "ADVERT:".red()
-            } else {
-                "REQUEST:".green()
-            },
-            self.req.uri().to_string().blue(),
-            if blocked_address {
-                "-> BLOCKED".red()
-            } else {
-                "-> ALLOWED".green()
-            }
+        let logger = (
+            self.req.uri().to_string(),
+            if blocked_address { true } else { false },
         );
+
+        self.sender.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
         if blocked_address {
             let mut resp = Response::new(Body::from("Oopsie Whoopsie!"));
             *resp.status_mut() = http::StatusCode::FORBIDDEN;
-
             return Ok(resp);
         }
 

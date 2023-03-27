@@ -6,26 +6,13 @@ use std::{
     thread,
 };
 
+use colored::Colorize;
 use eframe::{
     egui::{self, CentralPanel},
     epaint::{Color32, Stroke, Vec2},
 };
 
 use crate::{main_body, task_bar};
-
-pub struct MainWindow {
-    pub close_button_tint: Color32,
-    pub minimise_button_tint: Color32,
-    pub maximise_button_tint: Color32,
-
-    pub port: String,
-    pub port_error: String,
-    pub start_server_capable: bool,
-    pub proxy_event_sender: Sender<ProxyEvent>,
-    pub proxy_status: Arc<Mutex<ProxyEvent>>,
-
-    pub show_logs: bool,
-}
 
 #[derive(Debug)]
 pub enum ProxyEvent {
@@ -34,32 +21,58 @@ pub enum ProxyEvent {
     Error,
     Terminating,
     Terminated,
+    RequestEvent((String, bool)),
 }
 
-impl Default for MainWindow {
+pub struct Proxy {
+    pub port: String,
+    pub port_error: String,
+    pub start_enabled: bool,
+    pub event: Sender<ProxyEvent>,
+    pub status: Arc<Mutex<ProxyEvent>>,
+    pub logs: bool,
+
+    pub requests: Arc<Mutex<Vec<String>>>,
+}
+
+impl Default for Proxy {
     fn default() -> Self {
-        let (proxy_event_sender, proxy_event_receiver) = channel::<ProxyEvent>();
-        let proxy_event = Arc::new(Mutex::new(ProxyEvent::Stopped));
-        let proxy_event_clone = Arc::clone(&proxy_event);
+        let (event_sender, event_receiver) = channel::<ProxyEvent>();
+        let status = Arc::new(Mutex::new(ProxyEvent::Stopped));
+        let status_clone = Arc::clone(&status);
+
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let requests_clone = Arc::clone(&requests);
 
         thread::spawn(move || loop {
-            match proxy_event_receiver.recv() {
+            match event_receiver.recv() {
                 Ok(event) => match event {
-                    ProxyEvent::Running => {
-                        let mut status = proxy_event_clone.lock().unwrap();
-                        *status = ProxyEvent::Running;
-                    }
-                    ProxyEvent::Error => {
-                        let mut status = proxy_event_clone.lock().unwrap();
-                        *status = ProxyEvent::Error;
-                    }
-                    ProxyEvent::Terminating => {
-                        let mut status = proxy_event_clone.lock().unwrap();
-                        *status = ProxyEvent::Terminating;
-                    }
                     ProxyEvent::Terminated | ProxyEvent::Stopped => {
-                        let mut status = proxy_event_clone.lock().unwrap();
+                        let mut status = status_clone.lock().unwrap();
                         *status = ProxyEvent::Stopped;
+                    }
+                    ProxyEvent::RequestEvent((uri, blocked)) => {
+                        println!(
+                            "{} {} {}",
+                            if blocked {
+                                "ADVERT:".red()
+                            } else {
+                                "REQUEST:".green()
+                            },
+                            uri,
+                            if blocked {
+                                "-> BLOCKED".red()
+                            } else {
+                                "-> ALLOWED".green()
+                            }
+                        );
+
+                        let mut status = requests_clone.lock().unwrap();
+                        status.push(uri);
+                    }
+                    _ => {
+                        let mut status = status_clone.lock().unwrap();
+                        *status = event;
                     }
                 },
                 Err(_) => {
@@ -70,17 +83,65 @@ impl Default for MainWindow {
         });
 
         Self {
+            port: String::from("8000"),
+            port_error: String::default(),
+            start_enabled: false,
+            event: event_sender.clone(),
+            status,
+            logs: false,
+            requests,
+        }
+    }
+}
+
+impl Proxy {
+    pub fn get_status(&mut self) -> String {
+        let proxy_state = match self.status.lock() {
+            Ok(proxy_event) => proxy_event,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        let current_proxy_status = match *proxy_state {
+            ProxyEvent::Running => "RUNNING",
+            ProxyEvent::Stopped => "STOPPED",
+            ProxyEvent::Error => "ERROR",
+            ProxyEvent::Terminating => "TERMINATING",
+            ProxyEvent::Terminated => "TERMINATED",
+            _ => "NOT COVERED",
+        };
+
+        current_proxy_status.to_string()
+    }
+
+    pub fn get_requests(&mut self) -> Vec<String> {
+        let requests_list = match self.requests.lock() {
+            Ok(requests_list) => requests_list,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        requests_list.to_vec()
+    }
+}
+
+pub struct MainWindow {
+    pub close_button_tint: Color32,
+    pub minimise_button_tint: Color32,
+    pub maximise_button_tint: Color32,
+
+    // Handle all Proxy Details
+    pub proxy: Proxy,
+}
+
+impl Default for MainWindow {
+    fn default() -> Self {
+        let proxy = Proxy::default();
+
+        Self {
             close_button_tint: Color32::WHITE,
             minimise_button_tint: Color32::WHITE,
             maximise_button_tint: Color32::WHITE,
 
-            port: String::from("8000"),
-            port_error: String::default(),
-            start_server_capable: false,
-            proxy_event_sender: proxy_event_sender.clone(),
-            proxy_status: proxy_event,
-
-            show_logs: false,
+            proxy,
         }
     }
 }
@@ -91,10 +152,10 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.show_logs && !frame.info().window_info.maximized {
+        if self.proxy.logs && !frame.info().window_info.maximized {
             frame.set_window_size(Vec2 { x: 650.0, y: 500.0 });
-        } else if !self.show_logs && !frame.info().window_info.maximized {
-            frame.set_window_size(Vec2 { x: 250.0, y: 140.0 });
+        } else if !self.proxy.logs && !frame.info().window_info.maximized {
+            frame.set_window_size(Vec2 { x: 250.0, y: 160.0 });
         }
 
         let panel_frame = egui::Frame {
@@ -108,7 +169,7 @@ impl eframe::App for MainWindow {
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 task_bar::task_bar(self, ui, frame);
-                main_body::main_body(self, ui, self.proxy_event_sender.clone());
+                main_body::main_body(&mut self.proxy, ui);
             });
         });
     }

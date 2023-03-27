@@ -1,20 +1,16 @@
-use std::{net::SocketAddr, sync::mpsc::Sender, thread};
+use std::{net::SocketAddr, thread};
 
 use eframe::{
-    egui::{self, scroll_area, CentralPanel, Margin, RichText, TextEdit},
+    egui::{self, CentralPanel, Margin, RichText, TextEdit},
     epaint::{Color32, Vec2},
 };
 
 use crate::{
-    default_window::{MainWindow, ProxyEvent},
+    default_window::{Proxy, ProxyEvent},
     proxy_handler::{proxy_service, read_from_csv},
 };
 
-pub fn main_body(
-    properties: &mut MainWindow,
-    ui: &mut egui::Ui,
-    proxy_event_sender: Sender<ProxyEvent>,
-) {
+pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
         fill: ui.ctx().style().visuals.window_fill(),
         outer_margin: Margin {
@@ -30,172 +26,164 @@ pub fn main_body(
     CentralPanel::default()
         .frame(panel_frame)
         .show(ui.ctx(), |ui| {
-            // control_panel(properties, ui, proxy_event_sender);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Max), |ui| {
-                control_panel_2(properties, ui, proxy_event_sender);
-                logs_panel(properties, ui);
+                control_panel(proxy, ui);
+                logs_panel(proxy, ui);
             });
         });
 }
 
-fn control_panel(
-    properties: &mut MainWindow,
-    ui: &mut egui::Ui,
-    proxy_event_sender: Sender<ProxyEvent>,
-) {
-    let proxy_state = match properties.proxy_status.lock() {
-        Ok(proxy_event) => proxy_event,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
+    // Get the current status of the Proxy to display functional components
+    let current_proxy_status = proxy.get_status();
 
-    let current_proxy_status = match *proxy_state {
-        ProxyEvent::Running => "RUNNING",
-        ProxyEvent::Stopped => "STOPPED",
-        ProxyEvent::Error => "ERROR",
-        ProxyEvent::Terminating => "TERMINATING",
-        ProxyEvent::Terminated => "TERMINATED",
-    };
+    // Create UI in downward direction
+    // use height of base app as we don't want to full up the entire space horizontally
+    // Use current height as we want to fill up the entire space vertically
+    ui.allocate_ui_with_layout(
+        Vec2 {
+            x: 230.,
+            y: ui.available_height(),
+        },
+        egui::Layout::top_down_justified(egui::Align::Min),
+        |ui| {
+            // TODO: Do I want this in a group? Does it look dumb?
+            ui.group(|ui| {
+                // Label and Port input
+                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                    if current_proxy_status == "STOPPED" {
+                        ui.label(RichText::new("Enter a Port to run on:").size(13.0));
+                        ui.add_space(2.0);
 
-    if current_proxy_status == "ERROR" {
-        properties.port_error = "Please check the port is available.".to_string();
-        properties.start_server_capable = true;
-    }
+                        let input = TextEdit::singleline(&mut proxy.port)
+                            .hint_text("Port, e.g. 8000")
+                            .vertical_align(eframe::emath::Align::Center)
+                            .min_size(Vec2 {
+                                x: ui.available_width(),
+                                y: 20.0,
+                            });
 
-    if current_proxy_status == "STOPPED" {
-        ui.label(RichText::new("Enter a Port to run on:").size(13.0));
-        ui.add_space(2.0);
+                        if ui.add(input).changed() {
+                            // TODO: Please handle error handling better
+                            // This should be checked constantly, when it's first painted & when it's changed
 
-        let input = TextEdit::singleline(&mut properties.port).hint_text("Port, e.g. 8000");
-        let input_response = ui.add(
-            input
-                .min_size(Vec2 {
-                    x: ui.available_width(),
-                    y: 20.0,
-                })
-                .vertical_align(eframe::emath::Align::Center),
-        );
+                            if let Err(_) = proxy.port.trim().parse::<u16>() {
+                                proxy.port_error = String::from("Invalid Characters in Port.");
+                                return proxy.start_enabled = false;
+                            }
 
-        if input_response.changed() {
-            // TODO: Something about this mess, there is definitely a nicer way
-            if properties.port.char_indices().count() < 2 {
-                properties.port_error = "Port too short!".to_string();
-                return;
-            } else {
-                properties.start_server_capable = true;
-                properties.port_error = String::default();
-            }
+                            if proxy.port.len() > 5 || proxy.port.len() < 1 {
+                                proxy.port_error = String::from("Invalid Port Length.");
+                                return proxy.start_enabled = false;
+                            }
 
-            if properties.port.char_indices().count() > 5 {
-                properties.port_error = "Port too long!".to_string();
-                return;
-            } else {
-                properties.start_server_capable = true;
-                properties.port_error = String::default();
-            }
+                            proxy.start_enabled = true;
+                            proxy.port_error = String::default();
+                        }
+                    }
 
-            if let Err(_) = properties.port.trim().parse::<u32>() {
-                properties.port_error = "Port contains invalid characters.".to_string();
-                properties.start_server_capable = false;
-                return;
-            } else {
-                properties.start_server_capable = true;
-                properties.port_error = String::default();
-            }
-        }
+                    if !proxy.port_error.is_empty() {
+                        ui.add_space(3.0);
+                        ui.label(
+                            RichText::new(&proxy.port_error)
+                                .size(11.0)
+                                .color(Color32::LIGHT_RED),
+                        );
+                    }
 
-        if !properties.port_error.is_empty() {
-            ui.add_space(3.0);
-            ui.label(
-                RichText::new(&properties.port_error)
-                    .size(11.0)
-                    .color(Color32::LIGHT_RED),
-            );
-        }
-    }
-
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-            if current_proxy_status == "RUNNING" {
-                let stop_button = egui::Button::new("Stop Proxy").min_size(Vec2 {
-                    x: ui.available_width() / 2.,
-                    y: 18.,
+                    if current_proxy_status == "TERMINATING" {
+                        proxy.start_enabled = false;
+                    }
                 });
-                let stop_button_response =
-                    ui.add_enabled(properties.start_server_capable, stop_button);
 
-                if stop_button_response.clicked() {
-                    proxy_event_sender.send(ProxyEvent::Terminating).unwrap();
-                }
-            } else {
-                let start_button = egui::Button::new(
-                    RichText::new(match current_proxy_status {
-                        "RUNNING" => "Retry Proxy",
-                        _ => "Start Proxy",
-                    })
-                    .size(13.0),
-                )
-                .min_size(Vec2 {
-                    x: ui.available_width() / 2.,
-                    y: 18.,
-                });
-                let start_button_response =
-                    ui.add_enabled(properties.start_server_capable, start_button);
-
-                if start_button_response.clicked() {
-                    let port_copy = properties.port.trim().parse::<u16>().unwrap().clone();
-                    let proxy_status = properties.proxy_status.clone();
-
-                    // Create a thread and assign the server to it
-                    // This stops the UI from freezing
-                    thread::spawn(move || {
-                        proxy_service(
-                            SocketAddr::from(([127, 0, 0, 1], port_copy)),
-                            proxy_event_sender,
-                            proxy_status,
-                        )
+                // Display Address Proxy is running on
+                if current_proxy_status == "RUNNING" {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                        ui.add(egui::Label::new("Hosting on: "));
+                        ui.add(egui::Label::new(
+                            RichText::new(format!("127.0.0.1:{}", proxy.port))
+                                .color(Color32::LIGHT_GREEN),
+                        ));
                     });
                 }
-            }
 
-            let logs_button =
-                egui::Button::new(RichText::new("View Logs").size(13.0)).min_size(Vec2 {
-                    x: ui.available_width(),
-                    y: 18.,
+                // Proxy Control buttons
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                        if current_proxy_status == "RUNNING" {
+                            let stop_button = egui::Button::new("Stop Proxy").min_size(Vec2 {
+                                x: ui.available_width() / 2.,
+                                y: 18.,
+                            });
+
+                            if ui
+                                .add_enabled(current_proxy_status == "RUNNING", stop_button)
+                                .clicked()
+                            {
+                                proxy.event.send(ProxyEvent::Terminating).unwrap();
+                            }
+                        } else {
+                            let start_button_text =
+                                RichText::new(match current_proxy_status.as_str() {
+                                    "ERROR" => "Retry Proxy",
+                                    "TERMINATING" => "Please Wait",
+                                    _ => "Start Proxy",
+                                })
+                                .size(13.0);
+
+                            let start_button =
+                                egui::Button::new(start_button_text).min_size(Vec2 {
+                                    x: ui.available_width() / 2.,
+                                    y: 18.,
+                                });
+
+                            if ui.add_enabled(proxy.start_enabled, start_button).clicked() {
+                                let port_copy = proxy.port.trim().parse::<u16>().unwrap().clone();
+                                let proxy_status = proxy.status.clone();
+
+                                // Create a thread and assign the server to it
+                                // This stops the UI from freezing
+                                let event_sender_clone = proxy.event.clone();
+                                thread::spawn(move || {
+                                    proxy_service(
+                                        SocketAddr::from(([127, 0, 0, 1], port_copy)),
+                                        event_sender_clone,
+                                        proxy_status,
+                                    )
+                                });
+                            }
+                        }
+
+                        let logs_button = egui::Button::new(RichText::new("View Logs").size(13.0))
+                            .min_size(Vec2 {
+                                x: ui.available_width(),
+                                y: 18.,
+                            });
+
+                        if ui.add_enabled(true, logs_button).clicked() {
+                            proxy.logs = !proxy.logs;
+                        }
+                    });
+
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                        ui.add(egui::Label::new("Process is currently:"));
+                        ui.add(egui::Label::new(
+                            RichText::new(format!("{}", current_proxy_status)).color(
+                                match current_proxy_status.as_str() {
+                                    "RUNNING" => Color32::LIGHT_GREEN,
+                                    _ => Color32::LIGHT_RED,
+                                },
+                            ),
+                        ));
+                    });
                 });
-
-            if ui.add_enabled(true, logs_button).clicked() {
-                properties.show_logs = !properties.show_logs;
-            }
-        });
-
-        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-            if current_proxy_status == "RUNNING" {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                    ui.add(egui::Label::new("Hosting on: "));
-                    ui.add(egui::Label::new(
-                        RichText::new(format!("127.0.0.1:{}", properties.port))
-                            .color(Color32::LIGHT_GREEN),
-                    ));
-                });
-            }
-
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                ui.add(egui::Label::new("Process is currently:"));
-                ui.add(egui::Label::new(
-                    RichText::new(format!("{}", current_proxy_status)).color(
-                        match current_proxy_status {
-                            "RUNNING" => Color32::LIGHT_GREEN,
-                            _ => Color32::LIGHT_RED,
-                        },
-                    ),
-                ));
             });
-        });
-    });
+        },
+    );
 }
 
-fn logs_panel(properties: &mut MainWindow, ui: &mut egui::Ui) {
-    if properties.show_logs {
+fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
+    if proxy.logs {
         ui.allocate_ui_with_layout(
             Vec2 {
                 x: ui.available_width(),
@@ -234,142 +222,27 @@ fn logs_panel(properties: &mut MainWindow, ui: &mut egui::Ui) {
                 ui.add_space(4.);
                 ui.push_id("poop", |ui| {
                     ui.group(|ui| {
-                        let num_rows = 12;
-                        let mut _checked = false;
+                        let request_list = proxy.get_requests();
+                        let num_rows = request_list.len();
+                        // let mut _checked = false;
                         egui::ScrollArea::new([false, true])
                             .auto_shrink([false, false])
                             .max_height(ui.available_height())
-                            .show_rows(ui, 18.0, num_rows, |_ui, _row_range| {
+                            .show_rows(ui, 18.0, num_rows, |ui, row_range| {
                                 // TODO: Loop through Vec<RequestList>
+
+                                for row in row_range {
+                                    let string_value = match request_list.get(row) {
+                                        Some(value) => value,
+                                        _ => "No value found",
+                                    };
+
+                                    ui.label(string_value);
+                                }
                             });
                     });
                 });
             },
         );
     }
-}
-
-fn control_panel_2(
-    properties: &mut MainWindow,
-    ui: &mut egui::Ui,
-    proxy_event_sender: Sender<ProxyEvent>,
-) {
-    // Get current Proxy Status
-    let proxy_state = match properties.proxy_status.lock() {
-        Ok(proxy_event) => proxy_event,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    // TODO: Make this an IMPL function
-    let current_proxy_status = match *proxy_state {
-        ProxyEvent::Running => "RUNNING",
-        ProxyEvent::Stopped => "STOPPED",
-        ProxyEvent::Error => "ERROR",
-        ProxyEvent::Terminating => "TERMINATING",
-        ProxyEvent::Terminated => "TERMINATED",
-    };
-
-    // Create UI in downward direction
-    // use height of base app as we don't want to full up the entire space horizontally
-    // Use current height as we want to fill up the entire space vertically]
-    ui.allocate_ui_with_layout(
-        Vec2 {
-            x: 230.,
-            y: ui.available_height(),
-        },
-        egui::Layout::top_down_justified(egui::Align::Min),
-        |ui| {
-            // TODO: Do I want this in a group? Does it look dumb?
-            ui.group(|ui| {
-                // Label and Port input
-                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                    ui.label(RichText::new("Enter a Port to run on:").size(13.0));
-                    ui.add_space(2.0);
-
-                    let input = TextEdit::singleline(&mut properties.port)
-                        .hint_text("Port, e.g. 8000")
-                        .vertical_align(eframe::emath::Align::Center)
-                        .min_size(Vec2 {
-                            x: ui.available_width(),
-                            y: 20.0,
-                        });
-
-                    if ui.add(input).changed() {
-                        // Do changed stuff
-                    }
-                });
-
-                // Display Address Proxy is running on
-                if current_proxy_status == "RUNNING" {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                        ui.add(egui::Label::new("Hosting on: "));
-                        ui.add(egui::Label::new(
-                            RichText::new(format!("127.0.0.1:{}", properties.port))
-                                .color(Color32::LIGHT_GREEN),
-                        ));
-                    });
-                }
-
-                // Proxy Control buttons
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                        if current_proxy_status == "RUNNING" {
-                            let stop_button = egui::Button::new("Stop Proxy").min_size(Vec2 {
-                                x: ui.available_width() / 2.,
-                                y: 18.,
-                            });
-
-                            if ui
-                                .add_enabled(properties.start_server_capable, stop_button)
-                                .clicked()
-                            {
-                                proxy_event_sender.send(ProxyEvent::Terminating).unwrap();
-                            }
-                        } else {
-                            let start_button_text = RichText::new(match current_proxy_status {
-                                "RUNNING" => "Retry Proxy",
-                                _ => "Start Proxy",
-                            })
-                            .size(13.0);
-
-                            let start_button =
-                                egui::Button::new(start_button_text).min_size(Vec2 {
-                                    x: ui.available_width() / 2.,
-                                    y: 18.,
-                                });
-
-                            if ui
-                                .add_enabled(properties.start_server_capable, start_button)
-                                .clicked()
-                            {
-                                let port_copy =
-                                    properties.port.trim().parse::<u16>().unwrap().clone();
-                                let proxy_status = properties.proxy_status.clone();
-
-                                // Create a thread and assign the server to it
-                                // This stops the UI from freezing
-                                thread::spawn(move || {
-                                    proxy_service(
-                                        SocketAddr::from(([127, 0, 0, 1], port_copy)),
-                                        proxy_event_sender,
-                                        proxy_status,
-                                    )
-                                });
-                            }
-                        }
-
-                        let logs_button = egui::Button::new(RichText::new("View Logs").size(13.0))
-                            .min_size(Vec2 {
-                                x: ui.available_width(),
-                                y: 18.,
-                            });
-
-                        if ui.add_enabled(true, logs_button).clicked() {
-                            properties.show_logs = !properties.show_logs;
-                        }
-                    });
-                });
-            });
-        },
-    );
 }

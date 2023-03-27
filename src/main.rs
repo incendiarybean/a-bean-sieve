@@ -12,7 +12,7 @@ fn main() -> Result<(), eframe::Error> {
         decorated: false,
         transparent: true,
         max_window_size: Some(egui::vec2(650.0, 500.0)),
-        min_window_size: Some(egui::vec2(250.0, 140.0)),
+        min_window_size: Some(egui::vec2(250.0, 160.0)),
         initial_window_size: Some(egui::vec2(250.0, 200.0)),
         resizable: true,
         follow_system_theme: true,
