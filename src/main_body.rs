@@ -5,10 +5,7 @@ use eframe::{
     epaint::{Color32, Vec2},
 };
 
-use crate::{
-    default_window::{Proxy, ProxyEvent},
-    proxy_handler::{proxy_service, read_from_csv},
-};
+use crate::proxy::{proxy_service, Proxy, ProxyEvent};
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
@@ -144,11 +141,13 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 // Create a thread and assign the server to it
                                 // This stops the UI from freezing
                                 let event_sender_clone = proxy.event.clone();
+                                let blocking = proxy.allow_blocking.clone();
                                 thread::spawn(move || {
                                     proxy_service(
                                         SocketAddr::from(([127, 0, 0, 1], port_copy)),
                                         event_sender_clone,
                                         proxy_status,
+                                        blocking,
                                     )
                                 });
                             }
@@ -182,6 +181,31 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     );
 }
 
+fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
+    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+
+    if ui.is_rect_visible(rect) {
+        let how_on = ui.ctx().animate_bool(response.id, *on);
+        let visuals = ui.style().interact_selectable(&response, *on);
+        let rect = rect.expand(visuals.expansion);
+        let radius = 0.5 * rect.height();
+        ui.painter()
+            .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
+        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+        let center = egui::pos2(circle_x, rect.center().y);
+        ui.painter()
+            .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
+    }
+
+    response
+}
+
 fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     if proxy.logs {
         ui.allocate_ui_with_layout(
@@ -192,29 +216,59 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 ui.vertical(|ui| {
-                    ui.label("Allow List:");
-                    ui.add_space(4.);
-                    ui.group(|ui| {
-                        // TODO: Create struct for CSV reading
-                        // Struct { values }
-                        // Impl { new -> get values to self, save -> rewrite new values to file, clear -> remove values from file }
-                        let whitelist = read_from_csv::<String>("./src/whitelist.csv").unwrap();
-                        let num_rows = whitelist.clone().into_iter().count();
+                    let is_blocking = match proxy.allow_blocking.lock() {
+                        Ok(is_blocking) => is_blocking,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
 
-                        let mut checked = false;
-                        egui::ScrollArea::new([false, true])
-                            .auto_shrink([false, false])
-                            .max_height(ui.available_height() / 3.0)
-                            .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                for row in row_range {
-                                    let string_value = match whitelist.get(row) {
-                                        Some(value) => value,
-                                        _ => "No value found",
-                                    };
-                                    ui.checkbox(&mut checked, format!("{}", string_value));
-                                }
-                            });
-                    });
+                    let mut blocking = *is_blocking;
+
+                    if ui
+                        .checkbox(&mut blocking, "Enable Proxy Filtering")
+                        .clicked()
+                    {
+                        println!("button {}, {}", !*is_blocking, blocking);
+
+                        proxy.event.send(ProxyEvent::Blocking(blocking)).unwrap();
+                    }
+
+                    if *is_blocking {
+                        ui.horizontal(|ui| {
+                            ui.label("Allow Incoming");
+                            if toggle_ui(ui, &mut proxy.blocking_by_allow).changed() {}
+                            ui.label("Block Incoming");
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Exclusion List:");
+                            if ui.button("options").clicked() {}
+                        });
+
+                        ui.add_space(4.);
+                        ui.group(|ui| {
+                            let list = if proxy.blocking_by_allow {
+                                proxy.allow_list.clone()
+                            } else {
+                                proxy.block_list.clone()
+                            };
+
+                            let num_rows = list.len();
+
+                            let mut checked = false;
+                            egui::ScrollArea::new([false, true])
+                                .auto_shrink([false, false])
+                                .max_height(ui.available_height() / 3.0)
+                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                    for row in row_range {
+                                        let string_value = match list.get(row) {
+                                            Some(value) => value,
+                                            _ => "No value found",
+                                        };
+                                        ui.checkbox(&mut checked, format!("{}", string_value));
+                                    }
+                                });
+                        });
+                    }
                 });
 
                 ui.add_space(6.);
@@ -224,20 +278,30 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                     ui.group(|ui| {
                         let request_list = proxy.get_requests();
                         let num_rows = request_list.len();
-                        // let mut _checked = false;
                         egui::ScrollArea::new([false, true])
                             .auto_shrink([false, false])
                             .max_height(ui.available_height())
                             .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                // TODO: Loop through Vec<RequestList>
-
                                 for row in row_range {
-                                    let string_value = match request_list.get(row) {
-                                        Some(value) => value,
-                                        _ => "No value found",
+                                    match request_list.get(row) {
+                                        Some((uri, blocked)) => ui.horizontal(|ui| {
+                                            ui.label(uri);
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{}",
+                                                    if *blocked { "Blocked" } else { "Allowed" }
+                                                ))
+                                                .color(if *blocked {
+                                                    Color32::LIGHT_RED
+                                                } else {
+                                                    Color32::LIGHT_GREEN
+                                                }),
+                                            );
+                                        }),
+                                        _ => ui.horizontal(|ui| {
+                                            ui.label("No values Found");
+                                        }),
                                     };
-
-                                    ui.label(string_value);
                                 }
                             });
                     });

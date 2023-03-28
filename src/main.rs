@@ -2,9 +2,10 @@
 
 use eframe::egui;
 
+mod csv_reader;
 mod default_window;
 mod main_body;
-mod proxy_handler;
+mod proxy;
 mod task_bar;
 
 fn main() -> Result<(), eframe::Error> {
