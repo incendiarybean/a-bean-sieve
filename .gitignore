@@ -1,2 +1,4 @@
 /target
-whitelist*
+allow_list*
+block_list*
+scripts

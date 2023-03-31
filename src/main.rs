@@ -2,17 +2,19 @@
 
 use eframe::egui;
 
+mod csv_reader;
 mod default_window;
 mod main_body;
-mod proxy_handler;
+mod proxy;
 mod task_bar;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         decorated: false,
         transparent: true,
-        min_window_size: Some(egui::vec2(250.0, 90.0)),
-        initial_window_size: Some(egui::vec2(250.0, 140.0)),
+        max_window_size: Some(egui::vec2(650.0, 500.0)),
+        min_window_size: Some(egui::vec2(250.0, 160.0)),
+        initial_window_size: Some(egui::vec2(250.0, 200.0)),
         resizable: true,
         follow_system_theme: true,
         ..Default::default()
@@ -20,6 +22,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Proxy Blocker",
         options,
-        Box::new(|_cc| Box::new(default_window::MainWindow::default())),
+        Box::new(|cc| Box::new(default_window::MainWindow::new(cc))),
     )
 }
