@@ -31,30 +31,30 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
 }
 
 // Toggle button from example Widgets
-// fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-//     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
-//     let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-//     if response.clicked() {
-//         *on = !*on;
-//         response.mark_changed();
-//     }
-//     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
+    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
 
-//     if ui.is_rect_visible(rect) {
-//         let how_on = ui.ctx().animate_bool(response.id, *on);
-//         let visuals = ui.style().interact_selectable(&response, *on);
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         ui.painter()
-//             .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
-//         let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-//         let center = egui::pos2(circle_x, rect.center().y);
-//         ui.painter()
-//             .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
-//     }
+    if ui.is_rect_visible(rect) {
+        let how_on = ui.ctx().animate_bool(response.id, *on);
+        let visuals = ui.style().interact_selectable(&response, *on);
+        let rect = rect.expand(visuals.expansion);
+        let radius = 0.5 * rect.height();
+        ui.painter()
+            .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
+        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+        let center = egui::pos2(circle_x, rect.center().y);
+        ui.painter()
+            .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
+    }
 
-//     response
-// }
+    response
+}
 
 // Left hand side panel
 fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
@@ -210,74 +210,74 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             },
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                // ui.vertical(|ui| {
-                //     let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
+                ui.vertical(|ui| {
+                    let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
 
-                //     let mut blocking = is_blocking;
-                //     let mut allow_requests_by_default = allow_requests_by_default;
+                    let mut blocking = is_blocking;
+                    let mut allow_requests_by_default = allow_requests_by_default;
 
-                //     // Get the default/current list for displaying
-                //     let default_list = if allow_requests_by_default {
-                //         &proxy.allow_list
-                //     } else {
-                //         &proxy.block_list
-                //     };
+                    // Get the default/current list for displaying
+                    let default_list = if allow_requests_by_default {
+                        &proxy.allow_list
+                    } else {
+                        &proxy.block_list
+                    };
 
-                //     if ui
-                //         .checkbox(&mut blocking, "Enable Proxy Filtering")
-                //         .clicked()
-                //     {
-                //         // Need to switch these around as allowing_all_traffic value doesn't change until event has been sent
-                //         let updated_list = if allow_requests_by_default {
-                //             &proxy.block_list
-                //         } else {
-                //             &proxy.allow_list
-                //         };
+                    if ui
+                        .checkbox(&mut blocking, "Enable Proxy Filtering")
+                        .clicked()
+                    {
+                        // Need to switch these around as allowing_all_traffic value doesn't change until event has been sent
+                        let updated_list = if allow_requests_by_default {
+                            &proxy.block_list
+                        } else {
+                            &proxy.allow_list
+                        };
 
-                //         proxy
-                //             .event
-                //             .send(ProxyEvent::Blocking(blocking, updated_list.to_vec()))
-                //             .unwrap();
-                //     }
+                        proxy
+                            .event
+                            .send(ProxyEvent::Blocking(blocking, updated_list.to_vec()))
+                            .unwrap();
+                    }
 
-                //     if is_blocking {
-                //         ui.horizontal(|ui| {
-                //             ui.label("Deny Incoming");
-                //             if toggle_ui(ui, &mut allow_requests_by_default).changed() {
-                //                 proxy
-                //                     .event
-                //                     .send(ProxyEvent::UpdateList(default_list.to_vec()))
-                //                     .unwrap();
-                //             }
-                //             ui.label("Allow Incoming");
-                //         });
+                    if is_blocking {
+                        ui.horizontal(|ui| {
+                            ui.label("Deny Incoming");
+                            if toggle_ui(ui, &mut allow_requests_by_default).changed() {
+                                proxy
+                                    .event
+                                    .send(ProxyEvent::UpdateList(default_list.to_vec()))
+                                    .unwrap();
+                            }
+                            ui.label("Allow Incoming");
+                        });
 
-                //         ui.horizontal(|ui| {
-                //             ui.label("Exclusion List:");
-                //             if ui.button("options").clicked() {}
-                //         });
+                        ui.horizontal(|ui| {
+                            ui.label("Exclusion List:");
+                            if ui.button("options").clicked() {}
+                        });
 
-                //         ui.add_space(4.);
-                //         ui.group(|ui| {
-                //             let exclusion_list = proxy.get_current_list();
-                //             let num_rows = exclusion_list.len();
+                        ui.add_space(4.);
+                        ui.group(|ui| {
+                            let exclusion_list = proxy.get_current_list();
+                            let num_rows = exclusion_list.len();
 
-                //             egui::ScrollArea::new([true, true])
-                //                 .auto_shrink([false, false])
-                //                 .max_height(ui.available_height() / 3.0)
-                //                 .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                //                     for row in row_range {
-                //                         let string_value = match exclusion_list.get(row) {
-                //                             Some(value) => value,
-                //                             _ => "No value found",
-                //                         };
-                //                         ui.label(string_value);
-                //                     }
-                //                 });
-                //         });
-                //     }
-                //     ui.add_space(6.);
-                // });
+                            egui::ScrollArea::new([true, true])
+                                .auto_shrink([false, false])
+                                .max_height(ui.available_height() / 3.0)
+                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                    for row in row_range {
+                                        let string_value = match exclusion_list.get(row) {
+                                            Some(value) => value,
+                                            _ => "No value found",
+                                        };
+                                        ui.label(string_value);
+                                    }
+                                });
+                        });
+                    }
+                    ui.add_space(6.);
+                });
 
                 ui.label("Request Log:");
                 ui.add_space(4.);
