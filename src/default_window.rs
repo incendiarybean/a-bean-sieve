@@ -5,6 +5,8 @@ use eframe::{
 
 use crate::{main_body, proxy::Proxy, task_bar};
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 pub struct MainWindow {
     pub close_button_tint: Color32,
     pub minimise_button_tint: Color32,
@@ -25,6 +27,19 @@ impl Default for MainWindow {
 
             proxy,
         }
+    }
+}
+
+impl MainWindow {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        if let Some(storage) = cc.storage {
+            // We can manipulate Proxy here, might be worth setting some default values
+            // Maybe a custom impl function to overwrite some items
+            // Mutex doesn't like being copied over
+            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+        }
+
+        Default::default()
     }
 }
 
@@ -54,5 +69,13 @@ impl eframe::App for MainWindow {
                 main_body::main_body(&mut self.proxy, ui);
             });
         });
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, self);
+    }
+
+    fn persist_native_window(&self) -> bool {
+        true
     }
 }

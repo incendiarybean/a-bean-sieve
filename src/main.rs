@@ -22,6 +22,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Proxy Blocker",
         options,
-        Box::new(|_cc| Box::new(default_window::MainWindow::default())),
+        Box::new(|cc| Box::new(default_window::MainWindow::new(cc))),
     )
 }

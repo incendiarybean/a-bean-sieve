@@ -20,7 +20,7 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
 
     painter.text(
         Pos2 {
-            x: title_bar_rect.left() + 6.0,
+            x: title_bar_rect.left() + 10.0,
             y: title_bar_rect.height() / 2.0,
         },
         Align2::LEFT_CENTER,

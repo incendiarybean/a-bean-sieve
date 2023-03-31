@@ -1,11 +1,11 @@
-use std::{net::SocketAddr, thread};
+use std::thread;
 
 use eframe::{
     egui::{self, CentralPanel, Margin, RichText, TextEdit},
     epaint::{Color32, Vec2},
 };
 
-use crate::proxy::{proxy_service, Proxy, ProxyEvent};
+use crate::proxy::{Proxy, ProxyEvent};
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
@@ -30,6 +30,33 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
         });
 }
 
+// Toggle button from example Widgets
+// fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+//     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
+//     let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+//     if response.clicked() {
+//         *on = !*on;
+//         response.mark_changed();
+//     }
+//     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+
+//     if ui.is_rect_visible(rect) {
+//         let how_on = ui.ctx().animate_bool(response.id, *on);
+//         let visuals = ui.style().interact_selectable(&response, *on);
+//         let rect = rect.expand(visuals.expansion);
+//         let radius = 0.5 * rect.height();
+//         ui.painter()
+//             .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
+//         let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+//         let center = egui::pos2(circle_x, rect.center().y);
+//         ui.painter()
+//             .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
+//     }
+
+//     response
+// }
+
+// Left hand side panel
 fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     // Get the current status of the Proxy to display functional components
     let current_proxy_status = proxy.get_status();
@@ -135,29 +162,21 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 });
 
                             if ui.add_enabled(proxy.start_enabled, start_button).clicked() {
-                                let port_copy = proxy.port.trim().parse::<u16>().unwrap().clone();
-                                let proxy_status = proxy.status.clone();
-
-                                // Create a thread and assign the server to it
-                                // This stops the UI from freezing
-                                let event_sender_clone = proxy.event.clone();
-                                let blocking = proxy.allow_blocking.clone();
-                                thread::spawn(move || {
-                                    proxy_service(
-                                        SocketAddr::from(([127, 0, 0, 1], port_copy)),
-                                        event_sender_clone,
-                                        proxy_status,
-                                        blocking,
-                                    )
-                                });
+                                let prox = proxy.clone();
+                                thread::spawn(move || prox.proxy_service());
                             }
                         }
 
-                        let logs_button = egui::Button::new(RichText::new("View Logs").size(13.0))
-                            .min_size(Vec2 {
-                                x: ui.available_width(),
-                                y: 18.,
-                            });
+                        let logs_button_text = if proxy.logs {
+                            "Close Logs"
+                        } else {
+                            "View Logs"
+                        };
+                        let logs_button_text = RichText::new(logs_button_text).size(13.0);
+                        let logs_button = egui::Button::new(logs_button_text).min_size(Vec2 {
+                            x: ui.available_width(),
+                            y: 18.,
+                        });
 
                         if ui.add_enabled(true, logs_button).clicked() {
                             proxy.logs = !proxy.logs;
@@ -167,7 +186,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
                         ui.add(egui::Label::new("Process is currently:"));
                         ui.add(egui::Label::new(
-                            RichText::new(format!("{}", current_proxy_status)).color(
+                            RichText::new(current_proxy_status.clone()).color(
                                 match current_proxy_status.as_str() {
                                     "RUNNING" => Color32::LIGHT_GREEN,
                                     _ => Color32::LIGHT_RED,
@@ -181,31 +200,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     );
 }
 
-fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
-    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    if response.clicked() {
-        *on = !*on;
-        response.mark_changed();
-    }
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-    if ui.is_rect_visible(rect) {
-        let how_on = ui.ctx().animate_bool(response.id, *on);
-        let visuals = ui.style().interact_selectable(&response, *on);
-        let rect = rect.expand(visuals.expansion);
-        let radius = 0.5 * rect.height();
-        ui.painter()
-            .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
-        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-        let center = egui::pos2(circle_x, rect.center().y);
-        ui.painter()
-            .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
-    }
-
-    response
-}
-
+// Right side panel
 fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     if proxy.logs {
         ui.allocate_ui_with_layout(
@@ -215,76 +210,91 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             },
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                ui.vertical(|ui| {
-                    let is_blocking = match proxy.allow_blocking.lock() {
-                        Ok(is_blocking) => is_blocking,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
+                // ui.vertical(|ui| {
+                //     let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
 
-                    let mut blocking = *is_blocking;
+                //     let mut blocking = is_blocking;
+                //     let mut allow_requests_by_default = allow_requests_by_default;
 
-                    if ui
-                        .checkbox(&mut blocking, "Enable Proxy Filtering")
-                        .clicked()
-                    {
-                        println!("button {}, {}", !*is_blocking, blocking);
+                //     // Get the default/current list for displaying
+                //     let default_list = if allow_requests_by_default {
+                //         &proxy.allow_list
+                //     } else {
+                //         &proxy.block_list
+                //     };
 
-                        proxy.event.send(ProxyEvent::Blocking(blocking)).unwrap();
-                    }
+                //     if ui
+                //         .checkbox(&mut blocking, "Enable Proxy Filtering")
+                //         .clicked()
+                //     {
+                //         // Need to switch these around as allowing_all_traffic value doesn't change until event has been sent
+                //         let updated_list = if allow_requests_by_default {
+                //             &proxy.block_list
+                //         } else {
+                //             &proxy.allow_list
+                //         };
 
-                    if *is_blocking {
-                        ui.horizontal(|ui| {
-                            ui.label("Allow Incoming");
-                            if toggle_ui(ui, &mut proxy.blocking_by_allow).changed() {}
-                            ui.label("Block Incoming");
-                        });
+                //         proxy
+                //             .event
+                //             .send(ProxyEvent::Blocking(blocking, updated_list.to_vec()))
+                //             .unwrap();
+                //     }
 
-                        ui.horizontal(|ui| {
-                            ui.label("Exclusion List:");
-                            if ui.button("options").clicked() {}
-                        });
+                //     if is_blocking {
+                //         ui.horizontal(|ui| {
+                //             ui.label("Deny Incoming");
+                //             if toggle_ui(ui, &mut allow_requests_by_default).changed() {
+                //                 proxy
+                //                     .event
+                //                     .send(ProxyEvent::UpdateList(default_list.to_vec()))
+                //                     .unwrap();
+                //             }
+                //             ui.label("Allow Incoming");
+                //         });
 
-                        ui.add_space(4.);
-                        ui.group(|ui| {
-                            let list = if proxy.blocking_by_allow {
-                                proxy.allow_list.clone()
-                            } else {
-                                proxy.block_list.clone()
-                            };
+                //         ui.horizontal(|ui| {
+                //             ui.label("Exclusion List:");
+                //             if ui.button("options").clicked() {}
+                //         });
 
-                            let num_rows = list.len();
+                //         ui.add_space(4.);
+                //         ui.group(|ui| {
+                //             let exclusion_list = proxy.get_current_list();
+                //             let num_rows = exclusion_list.len();
 
-                            let mut checked = false;
-                            egui::ScrollArea::new([false, true])
-                                .auto_shrink([false, false])
-                                .max_height(ui.available_height() / 3.0)
-                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                    for row in row_range {
-                                        let string_value = match list.get(row) {
-                                            Some(value) => value,
-                                            _ => "No value found",
-                                        };
-                                        ui.checkbox(&mut checked, format!("{}", string_value));
-                                    }
-                                });
-                        });
-                    }
-                });
+                //             egui::ScrollArea::new([true, true])
+                //                 .auto_shrink([false, false])
+                //                 .max_height(ui.available_height() / 3.0)
+                //                 .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                //                     for row in row_range {
+                //                         let string_value = match exclusion_list.get(row) {
+                //                             Some(value) => value,
+                //                             _ => "No value found",
+                //                         };
+                //                         ui.label(string_value);
+                //                     }
+                //                 });
+                //         });
+                //     }
+                //     ui.add_space(6.);
+                // });
 
-                ui.add_space(6.);
                 ui.label("Request Log:");
                 ui.add_space(4.);
-                ui.push_id("poop", |ui| {
+                ui.push_id("request_logger", |ui| {
                     ui.group(|ui| {
                         let request_list = proxy.get_requests();
                         let num_rows = request_list.len();
-                        egui::ScrollArea::new([false, true])
+                        egui::ScrollArea::new([true, true])
                             .auto_shrink([false, false])
                             .max_height(ui.available_height())
                             .show_rows(ui, 18.0, num_rows, |ui, row_range| {
                                 for row in row_range {
                                     match request_list.get(row) {
-                                        Some((uri, blocked)) => ui.horizontal(|ui| {
+                                        Some((method, uri, blocked)) => ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(method).color(Color32::LIGHT_BLUE),
+                                            );
                                             ui.label(uri);
                                             ui.label(
                                                 RichText::new(format!(
@@ -297,6 +307,12 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                     Color32::LIGHT_GREEN
                                                 }),
                                             );
+                                            // let button_text =
+                                            //     if *blocked { "Unblock" } else { "Block" };
+
+                                            // if ui.button(button_text).clicked() {
+                                            //     println!("REQUEST TO {}, {}", button_text, uri);
+                                            // }
                                         }),
                                         _ => ui.horizontal(|ui| {
                                             ui.label("No values Found");
