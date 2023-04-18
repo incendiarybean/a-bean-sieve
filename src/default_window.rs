@@ -5,7 +5,7 @@ use eframe::{
 
 use crate::{main_body, proxy::Proxy, task_bar};
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 #[serde(default)]
 pub struct MainWindow {
     pub close_button_tint: Color32,
@@ -33,10 +33,38 @@ impl Default for MainWindow {
 impl MainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
-            // We can manipulate Proxy here, might be worth setting some default values
-            // Maybe a custom impl function to overwrite some items
-            // Mutex doesn't like being copied over
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            // Handle our own state here,
+            // The basic state is ok being managed by the app
+            // The proxy state needs adjusting as it contains Mutex state which doesn't reimplement well
+            let previous_values: MainWindow =
+                eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+
+            let allow_blocking = match previous_values.proxy.allow_blocking.lock() {
+                Ok(allow_blocking) => *allow_blocking,
+                Err(poisoned) => *poisoned.into_inner(),
+            };
+
+            let allow_requests_by_default =
+                match previous_values.proxy.allow_requests_by_default.lock() {
+                    Ok(allow_requests_by_default) => *allow_requests_by_default,
+                    Err(poisoned) => *poisoned.into_inner(),
+                };
+
+            // Create new proxy to generate mutables
+            return Self {
+                close_button_tint: previous_values.close_button_tint,
+                minimise_button_tint: previous_values.minimise_button_tint,
+                maximise_button_tint: previous_values.maximise_button_tint,
+                proxy: Proxy::default().restore_previous(
+                    previous_values.proxy.port,
+                    previous_values.proxy.port_error,
+                    previous_values.proxy.logs,
+                    previous_values.proxy.allow_list,
+                    previous_values.proxy.block_list,
+                    allow_blocking,
+                    allow_requests_by_default,
+                ),
+            };
         }
 
         Default::default()

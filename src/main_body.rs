@@ -1,8 +1,11 @@
 use std::thread;
 
 use eframe::{
-    egui::{self, CentralPanel, Margin, RichText, TextEdit},
-    epaint::{Color32, Vec2},
+    egui::{
+        self, CentralPanel, CursorIcon, Id, InnerResponse, LayerId, Layout, Margin, Order,
+        RichText, Sense, TextEdit, Ui,
+    },
+    epaint::{self, Color32, Rect, Shape, Vec2},
 };
 
 use crate::proxy::{Proxy, ProxyEvent};
@@ -30,7 +33,7 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
         });
 }
 
-// Toggle button from example Widgets
+// Toggle
 fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
     let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
@@ -54,6 +57,79 @@ fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
 
     response
+}
+
+// Drag
+pub fn drag_source(ui: &mut Ui, id: Id, body: impl FnOnce(&mut Ui)) {
+    let is_being_dragged = ui.memory(|mem| mem.is_being_dragged(id));
+
+    if !is_being_dragged {
+        let response = ui.scope(body).response;
+
+        let response = ui.interact(response.rect, id, Sense::drag());
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::Grab);
+        }
+    } else {
+        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+
+        let layer_id = LayerId::new(Order::Tooltip, id);
+        let response = ui.with_layer_id(layer_id, body).response;
+
+        if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
+            let delta = pointer_pos - response.rect.center();
+            ui.ctx().translate_layer(layer_id, delta);
+        }
+    }
+}
+
+// Drop
+pub fn drop_target<R>(ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
+    let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
+
+    let margin = Vec2::splat(0.);
+
+    let outer_rect_bounds = ui.available_rect_before_wrap();
+    let inner_rect = outer_rect_bounds.shrink2(margin);
+    let where_to_put_background = ui.painter().add(Shape::Noop);
+    let mut content_ui = ui.child_ui(inner_rect, *ui.layout());
+    let ret = body(&mut content_ui);
+    let outer_rect = Rect::from_min_max(outer_rect_bounds.min, content_ui.min_rect().max + margin);
+    let (rect, response) = ui.allocate_at_least(outer_rect.size(), Sense::hover());
+
+    let style = if is_being_dragged && response.hovered() {
+        ui.visuals().widgets.active
+    } else {
+        ui.visuals().widgets.inactive
+    };
+    let mut stroke = style.bg_stroke;
+    if is_being_dragged {
+        stroke.color = ui.visuals().gray_out(stroke.color);
+    }
+
+    ui.painter().set(
+        where_to_put_background,
+        epaint::RectShape {
+            rounding: style.rounding,
+            fill: ui.ctx().style().visuals.window_fill(),
+            stroke,
+            rect,
+        },
+    );
+
+    InnerResponse::new(ret, response)
+}
+
+fn check_startup_capability(value: &String) -> (bool, String) {
+    if let Err(_) = value.trim().parse::<u16>() {
+        return (false, String::from("Invalid Characters in Port."));
+    }
+
+    if value.len() > 5 || value.len() < 1 {
+        return (false, String::from("Invalid Port Length."));
+    }
+
+    (true, String::default())
 }
 
 // Left hand side panel
@@ -86,24 +162,11 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 x: ui.available_width(),
                                 y: 20.0,
                             });
+                        ui.add(input);
 
-                        if ui.add(input).changed() {
-                            // TODO: Please handle error handling better
-                            // This should be checked constantly, when it's first painted & when it's changed
-
-                            if let Err(_) = proxy.port.trim().parse::<u16>() {
-                                proxy.port_error = String::from("Invalid Characters in Port.");
-                                return proxy.start_enabled = false;
-                            }
-
-                            if proxy.port.len() > 5 || proxy.port.len() < 1 {
-                                proxy.port_error = String::from("Invalid Port Length.");
-                                return proxy.start_enabled = false;
-                            }
-
-                            proxy.start_enabled = true;
-                            proxy.port_error = String::default();
-                        }
+                        let (start_status, error_message) = check_startup_capability(&proxy.port);
+                        proxy.start_enabled = start_status;
+                        proxy.port_error = error_message;
                     }
 
                     if !proxy.port_error.is_empty() {
@@ -216,38 +279,18 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                     let mut blocking = is_blocking;
                     let mut allow_requests_by_default = allow_requests_by_default;
 
-                    // Get the default/current list for displaying
-                    let default_list = if allow_requests_by_default {
-                        &proxy.allow_list
-                    } else {
-                        &proxy.block_list
-                    };
-
                     if ui
                         .checkbox(&mut blocking, "Enable Proxy Filtering")
                         .clicked()
                     {
-                        // Need to switch these around as allowing_all_traffic value doesn't change until event has been sent
-                        let updated_list = if allow_requests_by_default {
-                            &proxy.block_list
-                        } else {
-                            &proxy.allow_list
-                        };
-
-                        proxy
-                            .event
-                            .send(ProxyEvent::Blocking(blocking, updated_list.to_vec()))
-                            .unwrap();
+                        proxy.enable_exclusion();
                     }
 
                     if is_blocking {
                         ui.horizontal(|ui| {
                             ui.label("Deny Incoming");
                             if toggle_ui(ui, &mut allow_requests_by_default).changed() {
-                                proxy
-                                    .event
-                                    .send(ProxyEvent::UpdateList(default_list.to_vec()))
-                                    .unwrap();
+                                proxy.switch_exclusion();
                             }
                             ui.label("Allow Incoming");
                         });
@@ -258,23 +301,34 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         });
 
                         ui.add_space(4.);
-                        ui.group(|ui| {
-                            let exclusion_list = proxy.get_current_list();
-                            let num_rows = exclusion_list.len();
+                        let drop_response = drop_target(ui, |ui| {
+                            ui.group(|ui| {
+                                let exclusion_list = proxy.get_current_list();
+                                let num_rows = exclusion_list.len();
 
-                            egui::ScrollArea::new([true, true])
-                                .auto_shrink([false, false])
-                                .max_height(ui.available_height() / 3.0)
-                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                    for row in row_range {
-                                        let string_value = match exclusion_list.get(row) {
-                                            Some(value) => value,
-                                            _ => "No value found",
-                                        };
-                                        ui.label(string_value);
-                                    }
-                                });
-                        });
+                                egui::ScrollArea::new([true, true])
+                                    .auto_shrink([false, false])
+                                    .max_height(ui.available_height() / 3.0)
+                                    .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                        for row in row_range {
+                                            let string_value = match exclusion_list.get(row) {
+                                                Some(value) => value,
+                                                _ => "No value found",
+                                            };
+                                            ui.label(string_value);
+                                        }
+                                    });
+                            });
+                        })
+                        .response;
+
+                        // Check that an item is being dragged, it's over the drop zone and the mouse button is released
+                        let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
+                        if is_being_dragged && drop_response.hovered() {
+                            if ui.input(|i| i.pointer.any_released()) {
+                                proxy.add_exclusion();
+                            }
+                        }
                     }
                     ui.add_space(6.);
                 });
@@ -285,6 +339,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                     ui.group(|ui| {
                         let request_list = proxy.get_requests();
                         let num_rows = request_list.len();
+
                         egui::ScrollArea::new([true, true])
                             .auto_shrink([false, false])
                             .max_height(ui.available_height())
@@ -292,27 +347,50 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 for row in row_range {
                                     match request_list.get(row) {
                                         Some((method, uri, blocked)) => ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(method).color(Color32::LIGHT_BLUE),
-                                            );
-                                            ui.label(uri);
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{}",
-                                                    if *blocked { "Blocked" } else { "Allowed" }
-                                                ))
-                                                .color(if *blocked {
-                                                    Color32::LIGHT_RED
-                                                } else {
-                                                    Color32::LIGHT_GREEN
-                                                }),
-                                            );
-                                            // let button_text =
-                                            //     if *blocked { "Unblock" } else { "Block" };
+                                            let item_id = Id::new(format!(
+                                                "{}-{}-{}-{}",
+                                                method, uri, blocked, row
+                                            ));
+                                            ui.with_layout(
+                                                Layout::left_to_right(eframe::emath::Align::Center),
+                                                |ui| {
+                                                    drag_source(ui, item_id, |ui| {
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                RichText::new(method)
+                                                                    .color(Color32::LIGHT_BLUE),
+                                                            );
+                                                            ui.label(uri);
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{}",
+                                                                    if *blocked {
+                                                                        "Blocked"
+                                                                    } else {
+                                                                        "Allowed"
+                                                                    }
+                                                                ))
+                                                                .color(if *blocked {
+                                                                    Color32::LIGHT_RED
+                                                                } else {
+                                                                    Color32::LIGHT_GREEN
+                                                                }),
+                                                            );
+                                                        });
+                                                    });
+                                                    let button_text =
+                                                        if *blocked { "Unblock" } else { "Block" };
 
-                                            // if ui.button(button_text).clicked() {
-                                            //     println!("REQUEST TO {}, {}", button_text, uri);
-                                            // }
+                                                    if ui.button(button_text).clicked() {
+                                                        proxy.dragging_value = uri.to_string();
+                                                        proxy.add_exclusion();
+                                                    }
+                                                },
+                                            );
+
+                                            if ui.memory(|mem| mem.is_being_dragged(item_id)) {
+                                                proxy.dragging_value = uri.to_string()
+                                            }
                                         }),
                                         _ => ui.horizontal(|ui| {
                                             ui.label("No values Found");

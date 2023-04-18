@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::net::TcpStream;
 type HttpClient = Client<hyper::client::HttpConnector>;
+#[derive(Clone, Debug)]
 
 pub enum ProxyEvent {
     Running,
@@ -23,37 +24,35 @@ pub enum ProxyEvent {
     Terminating,
     Terminated,
     RequestEvent((String, String, bool)),
-    Blocking(bool, Vec<String>),
-    UpdateList(Vec<String>),
+    Blocking(Vec<String>),
+    SwitchList(Vec<String>),
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Proxy {
     pub port: String,
     pub port_error: String,
     pub logs: bool,
-    #[serde(skip)]
     pub allow_list: Vec<String>,
-    #[serde(skip)]
     pub block_list: Vec<String>,
 
     // #[serde(skip)] // We don't want to allow starting proxy by default
     pub start_enabled: bool,
 
-    // Mutex values seem to be locked when they get entered, will check on this
-    #[serde(skip)]
-    pub allow_requests_by_default: Arc<Mutex<bool>>,
+    pub dragging_value: String,
+
     #[serde(skip)]
     pub event: std::sync::mpsc::Sender<ProxyEvent>,
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
     #[serde(skip)]
     pub requests: Arc<Mutex<Vec<(String, String, bool)>>>,
-    #[serde(skip)]
+
+    // These will be recovered from previous state
     pub allow_blocking: Arc<Mutex<bool>>,
-    #[serde(skip)]
+    pub allow_requests_by_default: Arc<Mutex<bool>>,
     pub current_list: Arc<Mutex<Vec<String>>>,
 }
 
@@ -114,21 +113,21 @@ impl Default for Proxy {
                         let mut status = requests_clone.lock().unwrap();
                         status.push((method, uri, blocked));
                     }
-                    ProxyEvent::Blocking(is_blocking, default_list) => {
+                    ProxyEvent::Blocking(default_list) => {
                         let mut blocking = allow_blocking_clone.lock().unwrap();
-                        *blocking = is_blocking;
+                        *blocking = !*blocking;
 
                         let mut current_list = current_list_clone.lock().unwrap();
                         *current_list = default_list;
                     }
-                    ProxyEvent::UpdateList(new_list) => {
+                    ProxyEvent::SwitchList(exclusion_list) => {
                         // When updating the list, toggle the traffic control and update the list
                         let mut allow_requests_by_default =
                             allow_requests_by_default_clone.lock().unwrap();
                         *allow_requests_by_default = !*allow_requests_by_default;
 
                         let mut current_list = current_list_clone.lock().unwrap();
-                        *current_list = new_list;
+                        *current_list = exclusion_list;
                     }
                     _ => {
                         // If there is no custom event handler, simply set the value of status to this event type
@@ -141,10 +140,11 @@ impl Default for Proxy {
         });
 
         Self {
-            port: String::from("8000"),
+            port: String::new(),
             port_error: String::default(),
-            start_enabled: false,
+            start_enabled: true,
             event: event_sender.clone(),
+            dragging_value: String::new(),
             status,
             logs: false,
             requests,
@@ -158,7 +158,49 @@ impl Default for Proxy {
 }
 
 impl Proxy {
-    // Event listener for Proxy Termination
+    /// Restores previous state and returns the Proxy
+    ///
+    /// # Arguments
+    /// * `previous_port` - A String that contains the previous port
+    /// * `previous_port_error` - A String that contains the previous port error (if there was one)
+    /// * `show_logs` - A bool that contains whether the logs were showing or not
+    /// * `previous_allow_list` - A list of strings containing the previous allow_list
+    /// * `previous_block_list` - A list of strings containing the previous block_list
+    /// * `previously_blocking` - A bool that contains whether blocking was previously enabled
+    /// * `previously_allowing_requests_by_default` - A bool containing whether the deny or allow list was previously active
+    pub fn restore_previous(
+        mut self,
+        previous_port: String,
+        previous_port_error: String,
+        show_logs: bool,
+        previous_allow_list: Vec<String>,
+        previous_block_list: Vec<String>,
+        previously_blocking: bool,
+        previously_allowing_requests_by_default: bool,
+    ) -> Self {
+        self.port = previous_port;
+        self.port_error = previous_port_error;
+        self.logs = show_logs;
+        self.allow_list = previous_allow_list;
+        self.block_list = previous_block_list;
+
+        if previously_blocking {
+            self.enable_exclusion();
+        }
+
+        if previously_allowing_requests_by_default {
+            self.switch_exclusion();
+        }
+
+        self
+    }
+
+    /// Handles termination of the service
+    ///
+    /// # Arguments
+    /// * `shutdown_sig` - A oneshot signal to terminate the service
+    /// * `event` - The event sender to write current state
+    /// * `status` - The current ProxyEvent status
     fn handle_termination(
         shutdown_sig: tokio::sync::oneshot::Sender<()>,
         event: std::sync::mpsc::Sender<ProxyEvent>,
@@ -317,6 +359,53 @@ impl Proxy {
         };
 
         requests_list.to_vec()
+    }
+
+    pub fn enable_exclusion(&mut self) {
+        let (_blocking_status, allowing_all_traffic) = self.get_blocking_status();
+
+        self.event
+            .send(ProxyEvent::Blocking(if allowing_all_traffic {
+                self.block_list.clone()
+            } else {
+                self.allow_list.clone()
+            }))
+            .unwrap();
+    }
+
+    pub fn switch_exclusion(&mut self) {
+        let allowing_all_traffic = match self.allow_requests_by_default.lock() {
+            Ok(allowing_all_traffic) => allowing_all_traffic,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        self.event
+            .send(ProxyEvent::SwitchList(if *allowing_all_traffic {
+                self.allow_list.clone()
+            } else {
+                self.block_list.clone()
+            }))
+            .unwrap();
+    }
+
+    pub fn add_exclusion(&mut self) {
+        let mut list = self.get_current_list();
+        let is_already_excluded =
+            Self::is_excluded_address(list.clone(), self.dragging_value.clone());
+
+        if !is_already_excluded {
+            list.push(self.dragging_value.clone());
+        }
+
+        let (_is_blocking, allowing_all_traffic) = self.get_blocking_status();
+
+        if allowing_all_traffic {
+            self.block_list = list.clone();
+        } else {
+            self.allow_list = list.clone();
+        }
+
+        let mut current_list_mut = self.current_list.lock().unwrap();
+        *current_list_mut = list;
     }
 
     pub async fn request(
