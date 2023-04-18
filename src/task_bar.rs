@@ -87,22 +87,46 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
             };
 
             let _maximise_button_response = {
-                let button_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
+                let maximise_button_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
                     "maximise_button",
                     include_bytes!("./svg/maximise_button.svg"),
                     egui_extras::image::FitTo::Original,
                 )
                 .unwrap();
 
-                let image =
-                    egui::Image::new(button_svg.texture_id(ui.ctx()), button_svg.size_vec2())
-                        .tint(properties.maximise_button_tint);
+                let maximise_button_alt_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
+                    "maximise_alt_button",
+                    include_bytes!("./svg/maximise_alt_button.svg"),
+                    egui_extras::image::FitTo::Original,
+                )
+                .unwrap();
 
-                let button_image = image
+                let maximise_button_img = egui::Image::new(
+                    maximise_button_svg.texture_id(ui.ctx()),
+                    maximise_button_svg.size_vec2(),
+                )
+                .tint(properties.maximise_button_tint);
+
+                let maximise_button_alt_img = egui::Image::new(
+                    maximise_button_alt_svg.texture_id(ui.ctx()),
+                    maximise_button_alt_svg.size_vec2(),
+                )
+                .tint(properties.maximise_button_tint);
+
+                let maximise_button_image = maximise_button_img
                     .sense(egui::Sense::hover())
                     .sense(egui::Sense::click());
 
-                let response = ui.add(button_image);
+                let maximise_button_alt_image = maximise_button_alt_img
+                    .sense(egui::Sense::hover())
+                    .sense(egui::Sense::click());
+
+                let response = if frame.info().window_info.maximized {
+                    ui.add(maximise_button_alt_image)
+                } else {
+                    ui.add(maximise_button_image)
+                };
+
                 if response.hovered() {
                     if ui.ctx().style().visuals.dark_mode == true {
                         properties.maximise_button_tint = Color32::GRAY;

@@ -1,5 +1,6 @@
 use std::thread;
 
+use colored::Colorize;
 use eframe::{
     egui::{
         self, CentralPanel, CursorIcon, Id, InnerResponse, LayerId, Layout, Margin, Order,
@@ -315,7 +316,30 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                 Some(value) => value,
                                                 _ => "No value found",
                                             };
-                                            ui.label(string_value);
+                                            ui.horizontal(|ui| {
+
+                                                let label = ui.label(RichText::new(string_value).size(12.5)).interact(Sense::click());
+
+                                                if label.clicked() {
+                                                    println!("{} - {}", "Deleting item".green(), string_value.red());
+                                                    proxy.dragging_value = string_value.to_string();
+                                                    proxy.add_exclusion();
+                                                }
+
+                                                if label.hovered() {
+                                                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+
+                                                    let bin_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
+                                                        "bin",
+                                                        include_bytes!("./svg/bin.svg"),
+                                                        egui_extras::image::FitTo::Size(16, 16)
+                                                    )
+                                                    .unwrap();
+                                                    
+                                                    ui.add(egui::Image::new(bin_svg.texture_id(ui.ctx()), bin_svg.size_vec2()).tint(Color32::GRAY));
+                                                }                                               
+                                            });
+                                            ui.add(egui::Separator::default());
                                         }
                                     });
                             });
