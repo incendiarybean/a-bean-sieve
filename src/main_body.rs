@@ -24,6 +24,7 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
         ..Default::default()
     };
 
+    // Main window, split, control_panel left and logs_panel right
     CentralPanel::default()
         .frame(panel_frame)
         .show(ui.ctx(), |ui| {
@@ -121,12 +122,13 @@ pub fn drop_target<R>(ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> InnerResp
     InnerResponse::new(ret, response)
 }
 
-fn check_startup_capability(value: &String) -> (bool, String) {
-    if let Err(_) = value.trim().parse::<u16>() {
+// Run this on every frame to check if the port is valid
+fn check_startup_capability(port: &String) -> (bool, String) {
+    if let Err(_) = port.trim().parse::<u16>() {
         return (false, String::from("Invalid Characters in Port."));
     }
 
-    if value.len() > 5 || value.len() < 1 {
+    if port.len() > 5 || port.len() < 1 {
         return (false, String::from("Invalid Port Length."));
     }
 
@@ -179,6 +181,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         );
                     }
 
+                    // Block start-up until the service is completely terminated
                     if current_proxy_status == "TERMINATING" {
                         proxy.start_enabled = false;
                     }

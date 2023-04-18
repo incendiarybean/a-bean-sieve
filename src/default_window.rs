@@ -8,6 +8,7 @@ use crate::{main_body, proxy::Proxy, task_bar};
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainWindow {
+    // Handle colour change of hovering over TaskBar buttons
     pub close_button_tint: Color32,
     pub minimise_button_tint: Color32,
     pub maximise_button_tint: Color32,
@@ -33,9 +34,9 @@ impl Default for MainWindow {
 impl MainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
-            // Handle our own state here,
+            // Handle our own state here:
             // The basic state is ok being managed by the app
-            // The proxy state needs adjusting as it contains Mutex state which doesn't reimplement well
+            // The Proxy state needs adjusting as it contains Mutex state which doesn't reimplement well
             let previous_values: MainWindow =
                 eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 
@@ -77,6 +78,7 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Start Window enlarged if the Log Window is open
         if self.proxy.logs && !frame.info().window_info.maximized {
             frame.set_window_size(Vec2 { x: 650.0, y: 500.0 });
         } else if !self.proxy.logs && !frame.info().window_info.maximized {
@@ -91,6 +93,7 @@ impl eframe::App for MainWindow {
             ..Default::default()
         };
 
+        // Main layout of UI, task_bar top and main_body bottom
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 task_bar::task_bar(self, ui, frame);
