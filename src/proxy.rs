@@ -158,6 +158,88 @@ impl Default for Proxy {
 }
 
 impl Proxy {
+    #[tokio::main]
+    pub async fn proxy_service(self) {
+        let addr = SocketAddr::from((
+            [127, 0, 0, 1],
+            self.port.trim().parse::<u16>().unwrap().clone(),
+        ));
+
+        // Create a oneshot channel for sending a single burst of a termination signal
+        let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
+
+        let client = Client::builder()
+            .http1_title_case_headers(true)
+            .http1_preserve_header_case(true)
+            .build_http();
+
+        let request_event_sender = self.event.clone();
+        let make_service = make_service_fn(move |_| {
+            let client = client.clone();
+            let request_event_sender = request_event_sender.clone();
+
+            // Check if address blocking is currently in use
+            let is_blocking = match self.allow_blocking.lock() {
+                Ok(is_blocking) => *is_blocking,
+                Err(poisoned) => *poisoned.into_inner(),
+            };
+
+            let allow_by_default = match self.allow_requests_by_default.lock() {
+                Ok(allow_by_default) => *allow_by_default,
+                Err(poisoned) => *poisoned.into_inner(),
+            };
+
+            let configured_list = match self.current_list.lock() {
+                Ok(current_list) => current_list,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+
+            let configured_list = configured_list.clone();
+            async move {
+                Ok::<_, Infallible>(service_fn(move |request| {
+                    return Self::request(
+                        client.clone(),
+                        request,
+                        request_event_sender.clone(),
+                        is_blocking,
+                        allow_by_default.clone(),
+                        configured_list.clone(),
+                    );
+                }))
+            }
+        });
+
+        // I try to bind here to check if the Port is available to bind to
+        let server = Server::try_bind(&addr);
+        match server {
+            Ok(builder) => {
+                println!("{}", "Starting Service.".bright_blue());
+                self.event.send(ProxyEvent::Running).unwrap();
+
+                // Create handler for monitoring ProxyEvent - Termination Status
+                let event_clone = self.event.clone();
+                thread::spawn(move || {
+                    Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
+                });
+
+                // Create server
+                let server = builder
+                    .http1_preserve_header_case(true)
+                    .http1_title_case_headers(true)
+                    .serve(make_service)
+                    .with_graceful_shutdown(async {
+                        shutdown_rec.await.ok();
+                    });
+
+                // Run server non-stop unless there's an error
+                if let Err(_) = server.await {
+                    self.event.send(ProxyEvent::Error).unwrap();
+                }
+            }
+            Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
+        }
+    }
+
     /// Restores previous state and returns the Proxy
     ///
     /// # Arguments
@@ -218,7 +300,7 @@ impl Proxy {
 
             match *status {
                 ProxyEvent::Terminating => {
-                    println!("{}", "Terminating Service.".red());
+                    println!("{}", "Terminating Service.".yellow());
                     shutdown_sig.send(()).unwrap();
                     break;
                 }
@@ -228,89 +310,10 @@ impl Proxy {
 
         // Send event to show it's Terminated/Stopped
         event.send(ProxyEvent::Terminated).unwrap();
+        println!("{}", "Terminated Service.".red());
     }
 
-    #[tokio::main]
-    pub async fn proxy_service(self) {
-        let addr = SocketAddr::from((
-            [127, 0, 0, 1],
-            self.port.trim().parse::<u16>().unwrap().clone(),
-        ));
-
-        // Create a oneshot channel for sending a single burst of a termination signal
-        let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
-
-        let client = Client::builder()
-            .http1_title_case_headers(true)
-            .http1_preserve_header_case(true)
-            .build_http();
-
-        let request_event_sender = self.event.clone();
-        let make_service = make_service_fn(move |_| {
-            let client = client.clone();
-            let request_event_sender = request_event_sender.clone();
-
-            // Check if address blocking is currently in use
-            let is_blocking = match self.allow_blocking.lock() {
-                Ok(is_blocking) => *is_blocking,
-                Err(poisoned) => *poisoned.into_inner(),
-            };
-
-            let allow_by_default = match self.allow_requests_by_default.lock() {
-                Ok(allow_by_default) => *allow_by_default,
-                Err(poisoned) => *poisoned.into_inner(),
-            };
-
-            let configured_list = match self.current_list.lock() {
-                Ok(current_list) => current_list,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-
-            let configured_list = configured_list.clone();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |request| {
-                    return Self::request(
-                        client.clone(),
-                        request,
-                        request_event_sender.clone(),
-                        is_blocking,
-                        allow_by_default.clone(),
-                        configured_list.clone(),
-                    );
-                }))
-            }
-        });
-
-        // I try to bind here to check if the Port is available to bind to
-        let server = Server::try_bind(&addr);
-        match server {
-            Ok(builder) => {
-                self.event.send(ProxyEvent::Running).unwrap();
-
-                // Create handler for monitoring ProxyEvent - Termination Status
-                let event_clone = self.event.clone();
-                thread::spawn(move || {
-                    Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
-                });
-
-                // Create server
-                let server = builder
-                    .http1_preserve_header_case(true)
-                    .http1_title_case_headers(true)
-                    .serve(make_service)
-                    .with_graceful_shutdown(async {
-                        shutdown_rec.await.ok();
-                    });
-
-                // Run server non-stop unless there's an error
-                if let Err(_) = server.await {
-                    self.event.send(ProxyEvent::Error).unwrap();
-                }
-            }
-            Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
-        }
-    }
-
+    /// Returns the Proxy's current status
     pub fn get_status(&mut self) -> String {
         let proxy_state = match self.status.lock() {
             Ok(proxy_event) => proxy_event,
@@ -329,6 +332,7 @@ impl Proxy {
         current_proxy_status.to_string()
     }
 
+    /// Returns the Proxy's current exclusion list
     pub fn get_current_list(&mut self) -> Vec<String> {
         let current_list = match self.current_list.lock() {
             Ok(current_list) => current_list,
@@ -338,6 +342,7 @@ impl Proxy {
         current_list.clone()
     }
 
+    /// Returns the Proxy's current blocking status
     pub fn get_blocking_status(&mut self) -> (bool, bool) {
         let blocking_status = match self.allow_blocking.lock() {
             Ok(blocking_status) => blocking_status,
@@ -352,6 +357,7 @@ impl Proxy {
         (*blocking_status, *allowing_all_traffic)
     }
 
+    /// Returns the Proxy's recent requests
     pub fn get_requests(&mut self) -> Vec<(String, String, bool)> {
         let requests_list = match self.requests.lock() {
             Ok(requests_list) => requests_list,
@@ -361,6 +367,7 @@ impl Proxy {
         requests_list.to_vec()
     }
 
+    /// Sets whether the Proxy is using an exclusion list
     pub fn enable_exclusion(&mut self) {
         let (_blocking_status, allowing_all_traffic) = self.get_blocking_status();
 
@@ -373,6 +380,7 @@ impl Proxy {
             .unwrap();
     }
 
+    /// Sets which exclusion list the Proxy is using
     pub fn switch_exclusion(&mut self) {
         let allowing_all_traffic = match self.allow_requests_by_default.lock() {
             Ok(allowing_all_traffic) => allowing_all_traffic,
@@ -387,6 +395,7 @@ impl Proxy {
             .unwrap();
     }
 
+    /// Update the Proxy's exclusion list
     pub fn add_exclusion(&mut self) {
         let mut list = self.get_current_list();
         let is_already_excluded =
@@ -394,6 +403,8 @@ impl Proxy {
 
         if !is_already_excluded {
             list.push(self.dragging_value.clone());
+        } else {
+            list.retain(|x| x.clone() != self.dragging_value.clone());
         }
 
         let (_is_blocking, allowing_all_traffic) = self.get_blocking_status();
@@ -408,6 +419,22 @@ impl Proxy {
         *current_list_mut = list;
     }
 
+    /// Handles termination of the service
+    ///
+    /// # Arguments
+    /// * `exclusion_list` - a Vec of String to compare the Uri to
+    /// * `uri` - A String to check if it's in the list
+    pub fn is_excluded_address(exclusion_list: Vec<String>, uri: String) -> bool {
+        if exclusion_list
+            .iter()
+            .any(|item| uri.contains(item) || item.contains(&uri))
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     pub async fn request(
         client: HttpClient,
         request: Request<Body>,
@@ -416,7 +443,6 @@ impl Proxy {
         allow_by_default: bool,
         blocking_list: Vec<String>,
     ) -> Result<Response<Body>, hyper::Error> {
-        // I'll need to do an Arc<Mutex<Bool>> for watching whether the blocking is enabled
         // Check if address is within blocked list, send FORBIDDEN response on bad request
         let is_excluded_address =
             Self::is_excluded_address(blocking_list, request.uri().to_string());
@@ -467,17 +493,6 @@ impl Proxy {
             }
         } else {
             return client.request(request).await;
-        }
-    }
-
-    pub fn is_excluded_address(exclusion_list: Vec<String>, uri: String) -> bool {
-        if exclusion_list
-            .iter()
-            .any(|item| uri.contains(item) || item.contains(&uri))
-        {
-            true
-        } else {
-            false
         }
     }
 
