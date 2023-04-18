@@ -1,4 +1,3 @@
-use crate::csv_reader::read_from_csv;
 use colored::Colorize;
 use hyper::{
     http,
@@ -15,8 +14,8 @@ use std::{
 };
 use tokio::net::TcpStream;
 type HttpClient = Client<hyper::client::HttpConnector>;
-#[derive(Clone, Debug)]
 
+#[derive(Debug)]
 pub enum ProxyEvent {
     Running,
     Stopped,
@@ -28,49 +27,31 @@ pub enum ProxyEvent {
     SwitchList(Vec<String>),
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
-#[derive(Clone, Debug)]
 pub struct Proxy {
     pub port: String,
     pub port_error: String,
     pub logs: bool,
     pub allow_list: Vec<String>,
     pub block_list: Vec<String>,
-
-    // #[serde(skip)] // We don't want to allow starting proxy by default
     pub start_enabled: bool,
-
     pub dragging_value: String,
+    pub allow_blocking: Arc<Mutex<bool>>,
+    pub allow_requests_by_default: Arc<Mutex<bool>>,
+    pub current_list: Arc<Mutex<Vec<String>>>,
 
+    // Skip these as Default values are fine
     #[serde(skip)]
     pub event: std::sync::mpsc::Sender<ProxyEvent>,
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
     #[serde(skip)]
     pub requests: Arc<Mutex<Vec<(String, String, bool)>>>,
-
-    // These will be recovered from previous state
-    pub allow_blocking: Arc<Mutex<bool>>,
-    pub allow_requests_by_default: Arc<Mutex<bool>>,
-    pub current_list: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for Proxy {
     fn default() -> Self {
-        // I'm going to want to figure out dynamic file access or saved state
-        let allow_list_file: &[u8] = include_bytes!("./allow_list.csv");
-        let allow_list = match read_from_csv::<String>(allow_list_file) {
-            Ok(list) => list,
-            Err(_) => Vec::<String>::new(),
-        };
-
-        let block_list_file: &[u8] = include_bytes!("./block_list.csv");
-        let block_list = match read_from_csv::<String>(block_list_file) {
-            Ok(list) => list,
-            Err(_) => Vec::<String>::new(),
-        };
-
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
 
         // Need a value, and a shareable value to update the original reference
@@ -90,7 +71,10 @@ impl Default for Proxy {
         let current_list_clone = Arc::clone(&current_list);
 
         thread::spawn(move || loop {
+            // Sleep loop to loosen CPU stress
             thread::sleep(Duration::from_millis(100));
+
+            // Check incoming Proxy events
             match event_receiver.recv() {
                 Ok(event) => match event {
                     ProxyEvent::Terminated | ProxyEvent::Stopped => {
@@ -135,7 +119,10 @@ impl Default for Proxy {
                         *status = event;
                     }
                 },
-                Err(_) => (),
+                Err(_) => {
+                    let mut status = status_clone.lock().unwrap();
+                    *status = ProxyEvent::Error
+                }
             }
         });
 
@@ -150,8 +137,8 @@ impl Default for Proxy {
             requests,
             allow_blocking,
             allow_requests_by_default,
-            allow_list,
-            block_list,
+            allow_list: Vec::<String>::new(),
+            block_list: Vec::<String>::new(),
             current_list,
         }
     }

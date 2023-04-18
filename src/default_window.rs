@@ -5,7 +5,7 @@ use eframe::{
 
 use crate::{main_body, proxy::Proxy, task_bar};
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainWindow {
     pub close_button_tint: Color32,

@@ -225,8 +225,8 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 });
 
                             if ui.add_enabled(proxy.start_enabled, start_button).clicked() {
-                                let prox = proxy.clone();
-                                thread::spawn(move || prox.proxy_service());
+                                let proxy_clone = proxy.clone();
+                                thread::spawn(move || proxy_clone.proxy_service());
                             }
                         }
 
