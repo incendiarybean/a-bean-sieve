@@ -6,6 +6,7 @@ use eframe::{
         self, CentralPanel, CursorIcon, Id, InnerResponse, LayerId, Layout, Margin, Order,
         RichText, Sense, TextEdit, Ui,
     },
+    emath::Align,
     epaint::{self, Color32, Rect, Shape, Vec2},
 };
 
@@ -311,36 +312,33 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 let num_rows = exclusion_list.len();
 
                                 egui::ScrollArea::new([true, true])
-                                    .auto_shrink([false, false])
+                                    .auto_shrink([true, false])
                                     .max_height(ui.available_height() / 3.0)
+                                    .max_width(ui.available_width())
                                     .show_rows(ui, 18.0, num_rows, |ui, row_range| {
                                         for row in row_range {
                                             let string_value = match exclusion_list.get(row) {
                                                 Some(value) => value,
-                                                _ => "No value found",
+                                                None => "No value found",
                                             };
+                                            // TODO: Make this nicer!
                                             ui.horizontal(|ui| {
-
-                                                let label = ui.label(RichText::new(string_value).size(12.5)).interact(Sense::click());
-
-                                                if label.clicked() {
-                                                    println!("{} - {}", "Deleting item".green(), string_value.red());
-                                                    proxy.dragging_value = string_value.to_string();
-                                                    proxy.add_exclusion();
-                                                }
-
-                                                if label.hovered() {
-                                                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-
-                                                    let bin_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
-                                                        "bin",
-                                                        include_bytes!("./svg/bin.svg"),
-                                                        egui_extras::image::FitTo::Size(16, 16)
-                                                    )
-                                                    .unwrap();
-                                                    
-                                                    ui.add(egui::Image::new(bin_svg.texture_id(ui.ctx()), bin_svg.size_vec2()).tint(Color32::GRAY));
-                                                }                                               
+                                                ui.label(RichText::new(string_value).size(12.5));
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Min),
+                                                    |ui| {
+                                                        if ui.button("Remove").clicked() {
+                                                            println!(
+                                                                "{} - {}",
+                                                                "Deleting item".green(),
+                                                                string_value.red()
+                                                            );
+                                                            proxy.dragging_value =
+                                                                string_value.to_string();
+                                                            proxy.add_exclusion();
+                                                        };
+                                                    },
+                                                );
                                             });
                                             ui.add(egui::Separator::default());
                                         }
@@ -383,28 +381,66 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                 |ui| {
                                                     drag_source(ui, item_id, |ui| {
                                                         ui.horizontal(|ui| {
-                                                            ui.label(
-                                                                RichText::new(method)
-                                                                    .color(Color32::LIGHT_BLUE),
-                                                            );
-                                                            ui.label(uri);
-                                                            ui.label(
-                                                                RichText::new(format!(
-                                                                    "{}",
-                                                                    if *blocked {
-                                                                        "Blocked"
-                                                                    } else {
-                                                                        "Allowed"
-                                                                    }
-                                                                ))
-                                                                .color(if *blocked {
-                                                                    Color32::LIGHT_RED
-                                                                } else {
-                                                                    Color32::LIGHT_GREEN
-                                                                }),
+                                                            ui.with_layout(
+                                                                Layout::left_to_right(Align::Max),
+                                                                |ui| {
+                                                                    ui.label(
+                                                                        RichText::new(method)
+                                                                            .color(
+                                                                                Color32::LIGHT_BLUE,
+                                                                            )
+                                                                            .size(12.5),
+                                                                    );
+                                                                    ui.label(uri);
+
+                                                                    ui.label(
+                                                                        RichText::new(format!(
+                                                                            "{}",
+                                                                            if *blocked {
+                                                                                "Blocked"
+                                                                            } else {
+                                                                                "Allowed"
+                                                                            }
+                                                                        ))
+                                                                        .color(if *blocked {
+                                                                            Color32::LIGHT_RED
+                                                                        } else {
+                                                                            Color32::LIGHT_GREEN
+                                                                        }),
+                                                                    );
+                                                                },
                                                             );
                                                         });
+
+                                                        // ui.horizontal(|ui| {
+                                                        //     ui.label(
+                                                        //         RichText::new(method)
+                                                        //             .color(Color32::LIGHT_BLUE),
+                                                        //     );
+                                                        //     ui.label(uri);
+                                                        //     ui.label(
+                                                        //         RichText::new(format!(
+                                                        //             "{}",
+                                                        //             if *blocked {
+                                                        //                 "Blocked"
+                                                        //             } else {
+                                                        //                 "Allowed"
+                                                        //             }
+                                                        //         ))
+                                                        //         .color(if *blocked {
+                                                        //             Color32::LIGHT_RED
+                                                        //         } else {
+                                                        //             Color32::LIGHT_GREEN
+                                                        //         }),
+                                                        //     );
+                                                        // });
                                                     });
+                                                },
+                                            );
+
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Min),
+                                                |ui| {
                                                     let button_text =
                                                         if *blocked { "Unblock" } else { "Block" };
 
@@ -423,6 +459,8 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                             ui.label("No values Found");
                                         }),
                                     };
+
+                                    ui.add(egui::Separator::default());
                                 }
                             });
                     });
