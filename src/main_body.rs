@@ -3,8 +3,8 @@ use std::thread;
 use colored::Colorize;
 use eframe::{
     egui::{
-        self, CentralPanel, CursorIcon, Id, InnerResponse, LayerId, Layout, Margin, Order,
-        RichText, Sense, TextEdit, Ui,
+        self, CentralPanel, CursorIcon, Id, InnerResponse, LayerId, Layout,
+        Margin, Order, RichText, Sense, TextEdit, Ui,
     },
     emath::Align,
     epaint::{self, Color32, Rect, Shape, Vec2},
@@ -300,190 +300,194 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                             ui.label("Allow Incoming");
                         });
 
-                        ui.horizontal(|ui| {
-                            ui.label("Exclusion List:");
-                            if ui.button("options").clicked() {}
-                        });
-
-                        ui.add_space(4.);
-                        let drop_response = drop_target(ui, |ui| {
-                            ui.group(|ui| {
-                                let exclusion_list = proxy.get_current_list();
-                                let num_rows = exclusion_list.len();
-
-                                egui::ScrollArea::new([true, true])
-                                    .auto_shrink([false, false])
-                                    .max_height(ui.available_height() / 3.0)
-                                    .max_width(ui.available_width())
-                                    .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                        for row in row_range {
-                                            let uri = match exclusion_list.get(row) {
-                                                Some(uri) => uri,
-                                                None => "No value found",
-                                            };
-
-                                            // Truncate value so it fits better
-                                            let mut uri_truncated = uri.to_string();
-                                            if uri_truncated.len() > 35 {
-                                                uri_truncated.truncate(35);
-                                                uri_truncated += "...";
-                                            }
-
-                                            // TODO: Make this nicer!
-                                            ui.horizontal(|ui| {
-                                                if proxy.editing_row.0 && row == proxy.editing_row.1
-                                                {
-                                                    ui.text_edit_singleline(&mut proxy.edit_value);
-
-                                                    ui.with_layout(
-                                                        Layout::right_to_left(Align::Min),
-                                                        |ui| {
-                                                            if ui.button("Save").clicked() {
-                                                                proxy.editing_row = (false, 0);
-                                                            }
-                                                        },
-                                                    );
-                                                } else {
-                                                    ui.label(
-                                                        RichText::new(uri_truncated).size(12.5),
-                                                    )
-                                                    .on_hover_text_at_pointer(uri);
-
-                                                    ui.with_layout(
-                                                        Layout::right_to_left(Align::Min),
-                                                        |ui| {
-                                                            if ui.button("Edit").clicked() {
-                                                                proxy.editing_row = (true, row);
-                                                                proxy.edit_value = uri.to_string();
-                                                            }
-
-                                                            if ui.button("Remove").clicked() {
-                                                                println!(
-                                                                    "{} - {}",
-                                                                    "Deleting item".green(),
-                                                                    uri.red()
-                                                                );
-                                                                proxy.dragging_value =
-                                                                    uri.to_string();
-                                                                proxy.add_exclusion();
-                                                            };
-                                                        },
-                                                    );
+                        egui::CollapsingHeader::new("Request Exclusion List").default_open(false).show_unindented(ui, |ui| {
+                            ui.add_space(4.);
+                            let drop_response = drop_target(ui, |ui| {
+                                ui.group(|ui| {
+                                    let exclusion_list = proxy.get_current_list();
+                                    let num_rows = exclusion_list.len();
+    
+                                    egui::ScrollArea::new([true, true])
+                                        .auto_shrink([false, false])
+                                        .max_height(ui.available_height() / 3.0)
+                                        .max_width(ui.available_width())
+                                        .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                            for row in row_range {
+                                                if let Some(uri) = exclusion_list.get(row) {
+                                                    // Truncate value so it fits better
+                                                    let mut uri_truncated = uri.to_string();
+                                                    if uri_truncated.len() > 35 {
+                                                        uri_truncated.truncate(35);
+                                                        uri_truncated += "...";
+                                                    }
+    
+                                                    // TODO: Make this nicer!
+                                                    ui.horizontal(|ui| {
+                                                        if proxy.editing_row.0
+                                                            && row == proxy.editing_row.1
+                                                        {
+                                                            ui.text_edit_singleline(
+                                                                &mut proxy.editing_row.2,
+                                                            );
+    
+                                                            ui.with_layout(
+                                                                Layout::right_to_left(Align::Min),
+                                                                |ui| {
+                                                                    if ui.button("Save").clicked() {
+                                                                        proxy.update_exclusion_list_value(
+                                                                            uri.to_string(),
+                                                                        );
+                                                                    }
+                                                                },
+                                                            );
+                                                        } else {
+                                                            ui.label(
+                                                                RichText::new(uri_truncated).size(12.5),
+                                                            )
+                                                            .on_hover_text_at_pointer(uri);
+    
+                                                            ui.with_layout(
+                                                                Layout::right_to_left(Align::Min),
+                                                                |ui| {
+                                                                    if ui.button("Remove").clicked() {
+                                                                        println!(
+                                                                            "{} - {}",
+                                                                            "Deleting item".green(),
+                                                                            uri.red()
+                                                                        );
+                                                                        proxy.dragging_value =
+                                                                            uri.to_string();
+                                                                        proxy.add_exclusion();
+                                                                    };
+    
+                                                                    if ui.button("Edit").clicked() {
+                                                                        proxy.editing_row = (
+                                                                            true,
+                                                                            row,
+                                                                            uri.to_string(),
+                                                                        );
+                                                                    }
+                                                                },
+                                                            );
+                                                        }
+                                                    });
+                                                    ui.add(egui::Separator::default());
                                                 }
-                                            });
-                                            ui.add(egui::Separator::default());
-                                        }
-                                    });
-                            });
-                        })
-                        .response;
-
-                        // Check that an item is being dragged, it's over the drop zone and the mouse button is released
-                        let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
-                        if is_being_dragged
-                            && drop_response.hovered()
-                            && proxy.edit_value.is_empty()
-                        {
-                            if ui.input(|i| i.pointer.any_released()) {
-                                println!("DOING SOMETHING BAD");
-                                proxy.add_exclusion();
+                                            }
+                                        });
+                                });
+                            })
+                            .response;
+    
+                            // Check that an item is being dragged, it's over the drop zone and the mouse button is released
+                            let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
+                            if is_being_dragged
+                                && drop_response.hovered()
+                                && proxy.editing_row.2.is_empty()
+                            {
+                                if ui.input(|i| i.pointer.any_released()) {
+                                    println!("DOING SOMETHING BAD");
+                                    proxy.add_exclusion();
+                                }
                             }
-                        }
+                           
+                        });                        
                     }
                     ui.add_space(6.);
                 });
 
-                ui.label("Request Log:");
-                ui.add_space(4.);
-                ui.push_id("request_logger", |ui| {
-                    ui.group(|ui| {
-                        let request_list = proxy.get_requests();
-                        let num_rows = request_list.len();
+                egui::CollapsingHeader::new("Request Log").default_open(true).show_unindented(ui, |ui| {
+                    ui.add_space(4.);
+                    ui.push_id("request_logger", |ui| {
+                        ui.group(|ui| {
+                            let request_list = proxy.get_requests();
+                            let num_rows = request_list.len();
 
-                        egui::ScrollArea::new([true, true])
-                            .auto_shrink([false, false])
-                            .max_height(ui.available_height())
-                            .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                for row in row_range {
-                                    match request_list.get(row) {
-                                        Some((method, uri, blocked)) => ui.horizontal(|ui| {
-                                            let mut uri_truncated = uri.clone();
-                                            if uri_truncated.len() > 35 {
-                                                uri_truncated.truncate(35);
-                                                uri_truncated += "...";
-                                            }
+                            egui::ScrollArea::new([true, true])
+                                .auto_shrink([false, false])
+                                .max_height(ui.available_height())
+                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                    for row in row_range {
+                                        match request_list.get(row) {
+                                            Some((method, uri, blocked)) => ui.horizontal(|ui| {
+                                                let mut uri_truncated = uri.clone();
+                                                if uri_truncated.len() > 35 {
+                                                    uri_truncated.truncate(35);
+                                                    uri_truncated += "...";
+                                                }
 
-                                            let item_id = Id::new(format!(
-                                                "{}-{}-{}-{}",
-                                                method, uri, blocked, row
-                                            ));
-                                            ui.with_layout(
-                                                Layout::left_to_right(eframe::emath::Align::Center),
-                                                |ui| {
-                                                    drag_source(ui, item_id, |ui| {
-                                                        ui.horizontal(|ui| {
-                                                            ui.with_layout(
-                                                                Layout::left_to_right(Align::Max),
-                                                                |ui| {
-                                                                    ui.label(
-                                                                        RichText::new(method)
-                                                                            .color(
-                                                                                Color32::LIGHT_BLUE,
-                                                                            )
-                                                                            .size(12.5),
-                                                                    );
-                                                                    ui.label(uri_truncated)
-                                                                        .on_hover_text_at_pointer(
-                                                                            uri,
+                                                let item_id = Id::new(format!(
+                                                    "{}-{}-{}-{}",
+                                                    method, uri, blocked, row
+                                                ));
+                                                ui.with_layout(
+                                                    Layout::left_to_right(eframe::emath::Align::Center),
+                                                    |ui| {
+                                                        drag_source(ui, item_id, |ui| {
+                                                            ui.horizontal(|ui| {
+                                                                ui.with_layout(
+                                                                    Layout::left_to_right(Align::Max),
+                                                                    |ui| {
+                                                                        ui.label(
+                                                                            RichText::new(method)
+                                                                                .color(
+                                                                                    Color32::LIGHT_BLUE,
+                                                                                )
+                                                                                .size(12.5),
                                                                         );
-                                                                },
-                                                            );
+                                                                        ui.label(uri_truncated)
+                                                                            .on_hover_text_at_pointer(
+                                                                                uri,
+                                                                            );
+                                                                    },
+                                                                );
+                                                            });
                                                         });
-                                                    });
-                                                },
-                                            );
+                                                    },
+                                                );
 
-                                            ui.with_layout(
-                                                Layout::right_to_left(Align::Center),
-                                                |ui| {
-                                                    let button_text =
-                                                        if *blocked { "Unblock" } else { "Block" };
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        let button_text =
+                                                            if *blocked { "Unblock" } else { "Block" };
 
-                                                    if ui.button(button_text).clicked() {
-                                                        proxy.dragging_value = uri.to_string();
-                                                        proxy.add_exclusion();
-                                                    }
+                                                        if ui.button(button_text).clicked() {
+                                                            proxy.dragging_value = uri.to_string();
+                                                            proxy.add_exclusion();
+                                                        }
 
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "{}",
-                                                            if *blocked {
-                                                                "Blocked"
+                                                        ui.label(
+                                                            RichText::new(format!(
+                                                                "{}",
+                                                                if *blocked {
+                                                                    "Blocked"
+                                                                } else {
+                                                                    "Allowed"
+                                                                }
+                                                            ))
+                                                            .color(if *blocked {
+                                                                Color32::LIGHT_RED
                                                             } else {
-                                                                "Allowed"
-                                                            }
-                                                        ))
-                                                        .color(if *blocked {
-                                                            Color32::LIGHT_RED
-                                                        } else {
-                                                            Color32::LIGHT_GREEN
-                                                        }),
-                                                    );
-                                                },
-                                            );
+                                                                Color32::LIGHT_GREEN
+                                                            }),
+                                                        );
+                                                    },
+                                                );
 
-                                            if ui.memory(|mem| mem.is_being_dragged(item_id)) {
-                                                proxy.dragging_value = uri.to_string()
-                                            }
-                                        }),
-                                        _ => ui.horizontal(|ui| {
-                                            ui.label("No values Found");
-                                        }),
-                                    };
+                                                if ui.memory(|mem| mem.is_being_dragged(item_id)) {
+                                                    proxy.dragging_value = uri.to_string()
+                                                }
+                                            }),
+                                            _ => ui.horizontal(|ui| {
+                                                ui.label("No values Found");
+                                            }),
+                                        };
 
-                                    ui.add(egui::Separator::default());
-                                }
-                            });
+                                        ui.add(egui::Separator::default());
+                                    }
+                                });
+                        });
                     });
                 });
             },

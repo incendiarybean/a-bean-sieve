@@ -43,8 +43,7 @@ pub struct Proxy {
     // Different value selectors for exclusion management
     pub dragging_value: String,
     pub selected_value: String,
-    pub editing_row: (bool, usize),
-    pub edit_value: String,
+    pub editing_row: (bool, usize, String),
 
     // Skip these as Default values are fine
     #[serde(skip)]
@@ -138,8 +137,7 @@ impl Default for Proxy {
             event: event_sender.clone(),
             dragging_value: String::new(),
             selected_value: String::new(),
-            editing_row: (false, 0),
-            edit_value: String::new(),
+            editing_row: (false, 0, String::new()),
             status,
             logs: false,
             requests,
@@ -340,16 +338,16 @@ impl Proxy {
     /// Returns the Proxy's current blocking status
     pub fn get_blocking_status(&mut self) -> (bool, bool) {
         let blocking_status = match self.allow_blocking.lock() {
-            Ok(blocking_status) => blocking_status,
-            Err(poisoned) => poisoned.into_inner(),
+            Ok(blocking_status) => *blocking_status,
+            Err(poisoned) => *poisoned.into_inner(),
         };
 
         let allowing_all_traffic = match self.allow_requests_by_default.lock() {
-            Ok(allowing_all_traffic) => allowing_all_traffic,
-            Err(poisoned) => poisoned.into_inner(),
+            Ok(allowing_all_traffic) => *allowing_all_traffic,
+            Err(poisoned) => *poisoned.into_inner(),
         };
 
-        (*blocking_status, *allowing_all_traffic)
+        (blocking_status, allowing_all_traffic)
     }
 
     /// Returns the Proxy's recent requests
@@ -412,6 +410,36 @@ impl Proxy {
 
         let mut current_list_mut = self.current_list.lock().unwrap();
         *current_list_mut = list;
+    }
+
+    /// Update a single value in the Proxy's exclusion list
+    pub fn update_exclusion_list_value(&mut self, uri: String) {
+        // TODO: This could be combined with the add_exclusion (rename to update_exclusion)
+        let mut list = self.get_current_list();
+
+        // Find index as cannot index by String
+        let uri_index = list.iter().position(|item| item == &uri).unwrap();
+
+        // Overwrite value in current_list
+        list[uri_index] = self.editing_row.2.clone();
+
+        // Update allow/deny lists
+        let allowing_all_traffic = match self.allow_requests_by_default.lock() {
+            Ok(allowing_all_traffic) => *allowing_all_traffic,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        if allowing_all_traffic {
+            self.block_list = list.clone();
+        } else {
+            self.allow_list = list.clone();
+        }
+
+        // Update current list values
+        let mut current_list_mut = self.current_list.lock().unwrap();
+        *current_list_mut = list;
+
+        // Reset edit values
+        self.editing_row = (false, 0, String::new());
     }
 
     /// Handles termination of the service
