@@ -312,33 +312,64 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 let num_rows = exclusion_list.len();
 
                                 egui::ScrollArea::new([true, true])
-                                    .auto_shrink([true, false])
+                                    .auto_shrink([false, false])
                                     .max_height(ui.available_height() / 3.0)
                                     .max_width(ui.available_width())
                                     .show_rows(ui, 18.0, num_rows, |ui, row_range| {
                                         for row in row_range {
-                                            let string_value = match exclusion_list.get(row) {
-                                                Some(value) => value,
+                                            let uri = match exclusion_list.get(row) {
+                                                Some(uri) => uri,
                                                 None => "No value found",
                                             };
+
+                                            // Truncate value so it fits better
+                                            let mut uri_truncated = uri.to_string();
+                                            if uri_truncated.len() > 35 {
+                                                uri_truncated.truncate(35);
+                                                uri_truncated += "...";
+                                            }
+
                                             // TODO: Make this nicer!
                                             ui.horizontal(|ui| {
-                                                ui.label(RichText::new(string_value).size(12.5));
-                                                ui.with_layout(
-                                                    Layout::right_to_left(Align::Min),
-                                                    |ui| {
-                                                        if ui.button("Remove").clicked() {
-                                                            println!(
-                                                                "{} - {}",
-                                                                "Deleting item".green(),
-                                                                string_value.red()
-                                                            );
-                                                            proxy.dragging_value =
-                                                                string_value.to_string();
-                                                            proxy.add_exclusion();
-                                                        };
-                                                    },
-                                                );
+                                                if proxy.editing_row.0 && row == proxy.editing_row.1
+                                                {
+                                                    ui.text_edit_singleline(&mut proxy.edit_value);
+
+                                                    ui.with_layout(
+                                                        Layout::right_to_left(Align::Min),
+                                                        |ui| {
+                                                            if ui.button("Save").clicked() {
+                                                                proxy.editing_row = (false, 0);
+                                                            }
+                                                        },
+                                                    );
+                                                } else {
+                                                    ui.label(
+                                                        RichText::new(uri_truncated).size(12.5),
+                                                    )
+                                                    .on_hover_text_at_pointer(uri);
+
+                                                    ui.with_layout(
+                                                        Layout::right_to_left(Align::Min),
+                                                        |ui| {
+                                                            if ui.button("Edit").clicked() {
+                                                                proxy.editing_row = (true, row);
+                                                                proxy.edit_value = uri.to_string();
+                                                            }
+
+                                                            if ui.button("Remove").clicked() {
+                                                                println!(
+                                                                    "{} - {}",
+                                                                    "Deleting item".green(),
+                                                                    uri.red()
+                                                                );
+                                                                proxy.dragging_value =
+                                                                    uri.to_string();
+                                                                proxy.add_exclusion();
+                                                            };
+                                                        },
+                                                    );
+                                                }
                                             });
                                             ui.add(egui::Separator::default());
                                         }
@@ -349,8 +380,12 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                         // Check that an item is being dragged, it's over the drop zone and the mouse button is released
                         let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
-                        if is_being_dragged && drop_response.hovered() {
+                        if is_being_dragged
+                            && drop_response.hovered()
+                            && proxy.edit_value.is_empty()
+                        {
                             if ui.input(|i| i.pointer.any_released()) {
+                                println!("DOING SOMETHING BAD");
                                 proxy.add_exclusion();
                             }
                         }
@@ -372,6 +407,12 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 for row in row_range {
                                     match request_list.get(row) {
                                         Some((method, uri, blocked)) => ui.horizontal(|ui| {
+                                            let mut uri_truncated = uri.clone();
+                                            if uri_truncated.len() > 35 {
+                                                uri_truncated.truncate(35);
+                                                uri_truncated += "...";
+                                            }
+
                                             let item_id = Id::new(format!(
                                                 "{}-{}-{}-{}",
                                                 method, uri, blocked, row
@@ -391,55 +432,19 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                                             )
                                                                             .size(12.5),
                                                                     );
-                                                                    ui.label(uri);
-
-                                                                    ui.label(
-                                                                        RichText::new(format!(
-                                                                            "{}",
-                                                                            if *blocked {
-                                                                                "Blocked"
-                                                                            } else {
-                                                                                "Allowed"
-                                                                            }
-                                                                        ))
-                                                                        .color(if *blocked {
-                                                                            Color32::LIGHT_RED
-                                                                        } else {
-                                                                            Color32::LIGHT_GREEN
-                                                                        }),
-                                                                    );
+                                                                    ui.label(uri_truncated)
+                                                                        .on_hover_text_at_pointer(
+                                                                            uri,
+                                                                        );
                                                                 },
                                                             );
                                                         });
-
-                                                        // ui.horizontal(|ui| {
-                                                        //     ui.label(
-                                                        //         RichText::new(method)
-                                                        //             .color(Color32::LIGHT_BLUE),
-                                                        //     );
-                                                        //     ui.label(uri);
-                                                        //     ui.label(
-                                                        //         RichText::new(format!(
-                                                        //             "{}",
-                                                        //             if *blocked {
-                                                        //                 "Blocked"
-                                                        //             } else {
-                                                        //                 "Allowed"
-                                                        //             }
-                                                        //         ))
-                                                        //         .color(if *blocked {
-                                                        //             Color32::LIGHT_RED
-                                                        //         } else {
-                                                        //             Color32::LIGHT_GREEN
-                                                        //         }),
-                                                        //     );
-                                                        // });
                                                     });
                                                 },
                                             );
 
                                             ui.with_layout(
-                                                Layout::right_to_left(Align::Min),
+                                                Layout::right_to_left(Align::Center),
                                                 |ui| {
                                                     let button_text =
                                                         if *blocked { "Unblock" } else { "Block" };
@@ -448,6 +453,22 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                         proxy.dragging_value = uri.to_string();
                                                         proxy.add_exclusion();
                                                     }
+
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{}",
+                                                            if *blocked {
+                                                                "Blocked"
+                                                            } else {
+                                                                "Allowed"
+                                                            }
+                                                        ))
+                                                        .color(if *blocked {
+                                                            Color32::LIGHT_RED
+                                                        } else {
+                                                            Color32::LIGHT_GREEN
+                                                        }),
+                                                    );
                                                 },
                                             );
 

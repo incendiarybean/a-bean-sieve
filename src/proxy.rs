@@ -36,10 +36,15 @@ pub struct Proxy {
     pub allow_list: Vec<String>,
     pub block_list: Vec<String>,
     pub start_enabled: bool,
-    pub dragging_value: String,
     pub allow_blocking: Arc<Mutex<bool>>,
     pub allow_requests_by_default: Arc<Mutex<bool>>,
     pub current_list: Arc<Mutex<Vec<String>>>,
+
+    // Different value selectors for exclusion management
+    pub dragging_value: String,
+    pub selected_value: String,
+    pub editing_row: (bool, usize),
+    pub edit_value: String,
 
     // Skip these as Default values are fine
     #[serde(skip)]
@@ -132,6 +137,9 @@ impl Default for Proxy {
             start_enabled: true,
             event: event_sender.clone(),
             dragging_value: String::new(),
+            selected_value: String::new(),
+            editing_row: (false, 0),
+            edit_value: String::new(),
             status,
             logs: false,
             requests,
