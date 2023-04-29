@@ -1,13 +1,13 @@
 use eframe::{
     egui::{self, Id, Sense},
     emath::Align2,
-    epaint::{vec2, Color32, FontId, Pos2},
+    epaint::{vec2, Color32, FontId, Pos2, Stroke},
 };
 
 use crate::default_window::MainWindow;
 
 pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-    let title_bar_height = 26.0;
+    let title_bar_height = 32.0;
     let title_bar_rect = {
         let mut rect = ui.max_rect();
         rect.max.y = rect.min.y + title_bar_height;
@@ -26,7 +26,7 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
         Align2::LEFT_CENTER,
         "Address Blocker",
         FontId::proportional(15.0),
-        ui.style().visuals.text_color(),
+        Color32::WHITE,
     );
 
     painter.line_segment(
@@ -34,7 +34,7 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
             title_bar_rect.left_bottom() + vec2(1.0, 0.0),
             title_bar_rect.right_bottom() + vec2(-1.0, 0.0),
         ],
-        ui.visuals().widgets.noninteractive.bg_stroke,
+        Stroke::new(1.0, Color32::GRAY),
     );
 
     if title_bar_response.double_clicked() {
