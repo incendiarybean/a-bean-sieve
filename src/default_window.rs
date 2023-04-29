@@ -95,7 +95,7 @@ impl eframe::App for MainWindow {
 
         // Main layout of UI, task_bar top and main_body bottom
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 task_bar::task_bar(self, ui, frame);
                 main_body::main_body(&mut self.proxy, ui);
             });

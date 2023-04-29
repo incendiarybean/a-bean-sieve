@@ -29,6 +29,24 @@ pub enum ProxyEvent {
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
+pub struct ProxyExclusionRow {
+    pub updating: bool,
+    pub row_index: usize,
+    pub row_value: String,
+}
+
+impl Default for ProxyExclusionRow {
+    fn default() -> Self {
+        Self {
+            updating: false,
+            row_index: 0,
+            row_value: String::new(),
+        }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[serde(default)]
 pub struct Proxy {
     pub port: String,
     pub port_error: String,
@@ -43,7 +61,7 @@ pub struct Proxy {
     // Different value selectors for exclusion management
     pub dragging_value: String,
     pub selected_value: String,
-    pub editing_row: (bool, usize, String),
+    pub selected_exclusion_row: ProxyExclusionRow,
 
     // Skip these as Default values are fine
     #[serde(skip)]
@@ -137,7 +155,7 @@ impl Default for Proxy {
             event: event_sender.clone(),
             dragging_value: String::new(),
             selected_value: String::new(),
-            editing_row: (false, 0, String::new()),
+            selected_exclusion_row: ProxyExclusionRow::default(),
             status,
             logs: false,
             requests,
@@ -421,7 +439,7 @@ impl Proxy {
         let uri_index = list.iter().position(|item| item == &uri).unwrap();
 
         // Overwrite value in current_list
-        list[uri_index] = self.editing_row.2.clone();
+        list[uri_index] = self.selected_exclusion_row.row_value.clone();
 
         // Update allow/deny lists
         let allowing_all_traffic = match self.allow_requests_by_default.lock() {
@@ -439,7 +457,7 @@ impl Proxy {
         *current_list_mut = list;
 
         // Reset edit values
-        self.editing_row = (false, 0, String::new());
+        self.selected_exclusion_row = ProxyExclusionRow::default();
     }
 
     /// Handles termination of the service

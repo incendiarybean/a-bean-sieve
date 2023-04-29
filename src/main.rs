@@ -2,7 +2,7 @@
 
 use eframe::egui;
 
-// mod csv_reader;
+mod csv_handler;
 mod custom_widgets;
 mod default_window;
 mod main_body;
