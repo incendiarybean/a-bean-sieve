@@ -14,12 +14,15 @@ use serde::Serialize;
 use crate::{proxy::{Proxy, ProxyEvent, ProxyExclusionRow}, custom_widgets, csv_handler};
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
+    let is_mac = std::env::consts::OS == "macos";
+
+    let top_margin = if is_mac { 35. } else { 5. };
     let panel_frame = egui::Frame {
         fill: ui.ctx().style().visuals.window_fill(),
         outer_margin: Margin {
             left: 5.0.into(),
             right: 5.0.into(),
-            top: 35.0.into(),
+            top: top_margin.into(),
             bottom: 5.0.into(),
         },
         inner_margin: 5.0.into(),

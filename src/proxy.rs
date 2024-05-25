@@ -1,10 +1,10 @@
 use colored::Colorize;
-use hyper::{
-    http,
-    service::{make_service_fn, service_fn},
-    upgrade::Upgraded,
-    Body, Client, Method, Request, Response, Server,
-};
+// use hyper::{
+//     http,
+//     service::{make_service_fn, service_fn},
+//     upgrade::Upgraded,
+//     Body, Client, Method, Request, Response, Server,
+// };
 use std::{
     convert::Infallible,
     net::SocketAddr,
@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpStream;
-type HttpClient = Client<hyper::client::HttpConnector>;
+// type HttpClient = Client<hyper::client::HttpConnector>;
 
 #[derive(Debug)]
 pub enum ProxyEvent {
@@ -179,76 +179,76 @@ impl Proxy {
         // Create a oneshot channel for sending a single burst of a termination signal
         let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
 
-        let client = Client::builder()
-            .http1_title_case_headers(true)
-            .http1_preserve_header_case(true)
-            .build_http();
+        // let client = Client::builder()
+        //     .http1_title_case_headers(true)
+        //     .http1_preserve_header_case(true)
+        //     .build_http();
 
         let request_event_sender = self.event.clone();
-        let make_service = make_service_fn(move |_| {
-            let client = client.clone();
-            let request_event_sender = request_event_sender.clone();
+        // let make_service = make_service_fn(move |_| {
+        // let client = client.clone();
+        let request_event_sender = request_event_sender.clone();
 
-            // Check if address blocking is currently in use
-            let is_blocking = match self.allow_blocking.lock() {
-                Ok(is_blocking) => *is_blocking,
-                Err(poisoned) => *poisoned.into_inner(),
-            };
+        // Check if address blocking is currently in use
+        let is_blocking = match self.allow_blocking.lock() {
+            Ok(is_blocking) => *is_blocking,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
 
-            let allow_by_default = match self.allow_requests_by_default.lock() {
-                Ok(allow_by_default) => *allow_by_default,
-                Err(poisoned) => *poisoned.into_inner(),
-            };
+        let allow_by_default = match self.allow_requests_by_default.lock() {
+            Ok(allow_by_default) => *allow_by_default,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
 
-            let configured_list = match self.current_list.lock() {
-                Ok(current_list) => current_list,
-                Err(poisoned) => poisoned.into_inner(),
-            };
+        let configured_list = match self.current_list.lock() {
+            Ok(current_list) => current_list,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
-            let configured_list = configured_list.clone();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |request| {
-                    return Self::request(
-                        client.clone(),
-                        request,
-                        request_event_sender.clone(),
-                        is_blocking,
-                        allow_by_default.clone(),
-                        configured_list.clone(),
-                    );
-                }))
-            }
-        });
+        let configured_list = configured_list.clone();
+        // async move {
+        //     Ok::<_, Infallible>(service_fn(move |request| {
+        //         return Self::request(
+        //             client.clone(),
+        //             request,
+        //             request_event_sender.clone(),
+        //             is_blocking,
+        //             allow_by_default.clone(),
+        //             configured_list.clone(),
+        //         );
+        //     }))
+        // };
+        // });
 
         // I try to bind here to check if the Port is available to bind to
-        let server = Server::try_bind(&addr);
-        match server {
-            Ok(builder) => {
-                println!("{}", "Starting Service.".bright_blue());
-                self.event.send(ProxyEvent::Running).unwrap();
+        // let server = Server::try_bind(&addr);
+        // match server {
+        //     Ok(builder) => {
+        //         println!("{}", "Starting Service.".bright_blue());
+        //         self.event.send(ProxyEvent::Running).unwrap();
 
-                // Create handler for monitoring ProxyEvent - Termination Status
-                let event_clone = self.event.clone();
-                thread::spawn(move || {
-                    Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
-                });
+        //         // Create handler for monitoring ProxyEvent - Termination Status
+        //         let event_clone = self.event.clone();
+        //         thread::spawn(move || {
+        //             Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
+        //         });
 
-                // Create server
-                let server = builder
-                    .http1_preserve_header_case(true)
-                    .http1_title_case_headers(true)
-                    .serve(make_service)
-                    .with_graceful_shutdown(async {
-                        shutdown_rec.await.ok();
-                    });
+        //         // Create server
+        //         let server = builder
+        //             .http1_preserve_header_case(true)
+        //             .http1_title_case_headers(true)
+        //             .serve(make_service)
+        //             .with_graceful_shutdown(async {
+        //                 shutdown_rec.await.ok();
+        //             });
 
-                // Run server non-stop unless there's an error
-                if let Err(_) = server.await {
-                    self.event.send(ProxyEvent::Error).unwrap();
-                }
-            }
-            Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
-        }
+        //         // Run server non-stop unless there's an error
+        //         if let Err(_) = server.await {
+        //             self.event.send(ProxyEvent::Error).unwrap();
+        //         }
+        //     }
+        //     Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
+        // }
     }
 
     /// Restores previous state and returns the Proxy
@@ -476,74 +476,74 @@ impl Proxy {
         }
     }
 
-    pub async fn request(
-        client: HttpClient,
-        request: Request<Body>,
-        event: std::sync::mpsc::Sender<ProxyEvent>,
-        is_blocking: bool,
-        allow_by_default: bool,
-        blocking_list: Vec<String>,
-    ) -> Result<Response<Body>, hyper::Error> {
-        // Check if address is within blocked list, send FORBIDDEN response on bad request
-        let is_excluded_address =
-            Self::is_excluded_address(blocking_list, request.uri().to_string());
+    // pub async fn request(
+    //     client: HttpClient,
+    //     request: Request<Body>,
+    //     event: std::sync::mpsc::Sender<ProxyEvent>,
+    //     is_blocking: bool,
+    //     allow_by_default: bool,
+    //     blocking_list: Vec<String>,
+    // ) -> Result<Response<Body>, hyper::Error> {
+    //     // Check if address is within blocked list, send FORBIDDEN response on bad request
+    //     let is_excluded_address =
+    //         Self::is_excluded_address(blocking_list, request.uri().to_string());
 
-        let logger = (
-            request.method().to_string(),
-            request.uri().to_string(),
-            is_blocking
-                && ((is_excluded_address && allow_by_default)
-                    || (!is_excluded_address & !allow_by_default)),
-        );
+    //     let logger = (
+    //         request.method().to_string(),
+    //         request.uri().to_string(),
+    //         is_blocking
+    //             && ((is_excluded_address && allow_by_default)
+    //                 || (!is_excluded_address & !allow_by_default)),
+    //     );
 
-        event.send(ProxyEvent::RequestEvent(logger)).unwrap();
+    //     event.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
-        if is_blocking {
-            // If we're allowing traffic but it's in the exception list - block it
-            // If we're blocking traffic but it's in the exception list - block it
-            if (is_excluded_address && allow_by_default)
-                || (!is_excluded_address & !allow_by_default)
-            {
-                let mut resp = Response::new(Body::from("Oopsie Whoopsie!"));
-                *resp.status_mut() = http::StatusCode::FORBIDDEN;
-                return Ok(resp);
-            }
-        }
+    //     if is_blocking {
+    //         // If we're allowing traffic but it's in the exception list - block it
+    //         // If we're blocking traffic but it's in the exception list - block it
+    //         if (is_excluded_address && allow_by_default)
+    //             || (!is_excluded_address & !allow_by_default)
+    //         {
+    //             let mut resp = Response::new(Body::from("Oopsie Whoopsie!"));
+    //             *resp.status_mut() = http::StatusCode::FORBIDDEN;
+    //             return Ok(resp);
+    //         }
+    //     }
 
-        // Forward the rest of accepted requests
-        if Method::CONNECT == request.method() {
-            if let Some(addr) = Self::host_addr(request.uri()) {
-                tokio::task::spawn(async move {
-                    match hyper::upgrade::on(request).await {
-                        Ok(upgraded) => {
-                            if let Err(_) = Self::tunnel(upgraded, addr).await {
-                                // This error mostly indicates an external host closed a connection
-                                // Don't need to worry about that
-                            };
-                        }
-                        Err(e) => println!("upgrade error: {}", e.to_string().red()),
-                    }
-                });
+    //     // Forward the rest of accepted requests
+    //     if Method::CONNECT == request.method() {
+    //         if let Some(addr) = Self::host_addr(request.uri()) {
+    //             tokio::task::spawn(async move {
+    //                 match hyper::upgrade::on(request).await {
+    //                     Ok(upgraded) => {
+    //                         if let Err(_) = Self::tunnel(upgraded, addr).await {
+    //                             // This error mostly indicates an external host closed a connection
+    //                             // Don't need to worry about that
+    //                         };
+    //                     }
+    //                     Err(e) => println!("upgrade error: {}", e.to_string().red()),
+    //                 }
+    //             });
 
-                Ok(Response::new(Body::empty()))
-            } else {
-                let mut resp = Response::new(Body::from("CONNECT must be to a socket address"));
-                *resp.status_mut() = http::StatusCode::BAD_REQUEST;
+    //             Ok(Response::new(Body::empty()))
+    //         } else {
+    //             let mut resp = Response::new(Body::from("CONNECT must be to a socket address"));
+    //             *resp.status_mut() = http::StatusCode::BAD_REQUEST;
 
-                return Ok(resp);
-            }
-        } else {
-            return client.request(request).await;
-        }
-    }
+    //             return Ok(resp);
+    //         }
+    //     } else {
+    //         return client.request(request).await;
+    //     }
+    // }
 
-    fn host_addr(uri: &http::Uri) -> Option<String> {
-        uri.authority().and_then(|auth| Some(auth.to_string()))
-    }
+    // fn host_addr(uri: &http::Uri) -> Option<String> {
+    //     uri.authority().and_then(|auth| Some(auth.to_string()))
+    // }
 
-    async fn tunnel(mut upgraded: Upgraded, addr: String) -> std::io::Result<()> {
-        let mut server = TcpStream::connect(addr).await?;
-        tokio::io::copy_bidirectional(&mut upgraded, &mut server).await?;
-        Ok(())
-    }
+    // async fn tunnel(mut upgraded: Upgraded, addr: String) -> std::io::Result<()> {
+    //     let mut server = TcpStream::connect(addr).await?;
+    //     tokio::io::copy_bidirectional(&mut upgraded, &mut server).await?;
+    //     Ok(())
+    // }
 }

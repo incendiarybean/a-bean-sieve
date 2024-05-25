@@ -1,6 +1,7 @@
 use eframe::{
-    egui::{self, CursorIcon, Id, InnerResponse, LayerId, Order, Sense, Ui},
-    epaint::{self, Rect, Shape, Vec2},
+    egui::{self, CursorIcon, Id, InnerResponse, LayerId, Order, Sense, TextureId, Ui},
+    emath::TSTransform,
+    epaint::{self, Rect, RectShape, Shape, Vec2},
 };
 
 // Toggle
@@ -48,7 +49,9 @@ pub fn drag_source(ui: &mut Ui, id: Id, body: impl FnOnce(&mut Ui)) {
 
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
             let delta = pointer_pos - response.rect.center();
-            ui.ctx().translate_layer(layer_id, delta);
+            let transform = TSTransform::from_translation(delta);
+
+            ui.ctx().transform_layer_shapes(layer_id, transform)
         }
     }
 }
@@ -79,12 +82,14 @@ pub fn drop_target<R>(ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> InnerResp
 
     ui.painter().set(
         where_to_put_background,
-        epaint::RectShape {
+        Shape::Rect(RectShape {
+            rect,
             rounding: style.rounding,
             fill: ui.ctx().style().visuals.window_fill(),
             stroke,
-            rect,
-        },
+            fill_texture_id: TextureId::default(),
+            uv: Rect::ZERO,
+        }),
     );
 
     InnerResponse::new(ret, response)
