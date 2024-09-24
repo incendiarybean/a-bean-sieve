@@ -1,13 +1,16 @@
 use eframe::{
-    egui::{self, Id, Sense},
+    egui::{self, include_image, Id, Sense},
     emath::Align2,
-    epaint::{vec2, Color32, FontId, Pos2},
+    epaint::{vec2, Color32, FontId, Pos2, Stroke},
 };
 
 use crate::default_window::MainWindow;
 
-pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-    let title_bar_height = 26.0;
+pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui) {
+    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+    let is_dark_mode = ui.ctx().style().visuals.dark_mode;
+
+    let title_bar_height = 32.0;
     let title_bar_rect = {
         let mut rect = ui.max_rect();
         rect.max.y = rect.min.y + title_bar_height;
@@ -26,7 +29,7 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
         Align2::LEFT_CENTER,
         "Address Blocker",
         FontId::proportional(15.0),
-        ui.style().visuals.text_color(),
+        Color32::WHITE,
     );
 
     painter.line_segment(
@@ -34,13 +37,14 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
             title_bar_rect.left_bottom() + vec2(1.0, 0.0),
             title_bar_rect.right_bottom() + vec2(-1.0, 0.0),
         ],
-        ui.visuals().widgets.noninteractive.bg_stroke,
+        Stroke::new(1.0, Color32::GRAY),
     );
 
     if title_bar_response.double_clicked() {
-        frame.set_maximized(!frame.info().window_info.maximized);
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
     } else if title_bar_response.is_pointer_button_down_on() {
-        frame.drag_window();
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
 
     ui.allocate_ui_at_rect(title_bar_rect, |ui| {
@@ -50,105 +54,90 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
             ui.add_space(8.0);
 
             let _close_button_response = {
-                let button_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
-                    "close_button",
-                    include_bytes!("./svg/close_button.svg"),
-                    egui_extras::image::FitTo::Original,
-                )
-                .unwrap();
-
-                let image =
-                    egui::Image::new(button_svg.texture_id(ui.ctx()), button_svg.size_vec2())
-                        .tint(properties.close_button_tint);
-
-                let button_image = image
+                let button = egui::Image::new(include_image!("./assets/close_button.svg"))
+                    .fit_to_fraction(egui::Vec2 { x: 0.8, y: 0.8 })
                     .sense(egui::Sense::hover())
-                    .sense(egui::Sense::click());
+                    .sense(egui::Sense::click())
+                    .tint(properties.close_button_tint);
 
-                let response = ui.add(button_image).on_hover_text("Close the Window.");
+                let response = ui.add(button).on_hover_text("Close the Window.");
 
                 if response.hovered() {
-                    if ui.ctx().style().visuals.dark_mode == true {
-                        properties.close_button_tint = Color32::GRAY;
+                    properties.close_button_tint = if is_dark_mode {
+                        Color32::GRAY
                     } else {
-                        properties.close_button_tint = Color32::DARK_GRAY
+                        Color32::DARK_GRAY
                     }
                 } else {
-                    if ui.ctx().style().visuals.dark_mode == true {
-                        properties.close_button_tint = Color32::WHITE;
+                    properties.close_button_tint = if is_dark_mode {
+                        Color32::WHITE
                     } else {
-                        properties.close_button_tint = Color32::BLACK
+                        Color32::BLACK
                     }
                 }
 
                 if response.clicked() {
-                    frame.close();
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             };
 
             let _maximise_button_response = {
-                let button_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
-                    "maximise_button",
-                    include_bytes!("./svg/maximise_button.svg"),
-                    egui_extras::image::FitTo::Original,
-                )
-                .unwrap();
+                let button_image = include_image!("./assets/maximise_button.svg");
+                let alt_button_image = include_image!("./assets/maximise_alt_button.svg");
 
-                let image =
-                    egui::Image::new(button_svg.texture_id(ui.ctx()), button_svg.size_vec2())
-                        .tint(properties.maximise_button_tint);
+                let current_button_image = if is_maximized {
+                    alt_button_image
+                } else {
+                    button_image
+                };
 
-                let button_image = image
+                let button = egui::Image::new(current_button_image)
+                    .fit_to_fraction(egui::Vec2 { x: 0.8, y: 0.8 })
                     .sense(egui::Sense::hover())
-                    .sense(egui::Sense::click());
+                    .sense(egui::Sense::click())
+                    .tint(properties.maximise_button_tint);
 
-                let response = ui.add(button_image);
+                let response = ui.add(button);
+
                 if response.hovered() {
-                    if ui.ctx().style().visuals.dark_mode == true {
-                        properties.maximise_button_tint = Color32::GRAY;
+                    properties.maximise_button_tint = if is_dark_mode {
+                        Color32::GRAY
                     } else {
-                        properties.maximise_button_tint = Color32::DARK_GRAY
+                        Color32::DARK_GRAY
                     }
                 } else {
-                    if ui.ctx().style().visuals.dark_mode == true {
-                        properties.maximise_button_tint = Color32::WHITE;
+                    properties.maximise_button_tint = if is_dark_mode {
+                        Color32::WHITE
                     } else {
-                        properties.maximise_button_tint = Color32::BLACK
+                        Color32::BLACK
                     }
                 }
 
-                if frame.info().window_info.maximized {
+                if is_maximized {
                     let restore_response = response.on_hover_text("Restore window");
 
                     if restore_response.clicked() {
-                        frame.set_maximized(false);
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(false));
                     }
                 } else {
                     let maximise_response = response.on_hover_text("Maximize window");
 
                     if maximise_response.clicked() {
-                        frame.set_maximized(true);
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(true));
                     }
                 }
             };
 
             let _minimise_button_response = {
-                let button_svg = egui_extras::RetainedImage::from_svg_bytes_with_size(
-                    "minimise_button",
-                    include_bytes!("./svg/minimise_button.svg"),
-                    egui_extras::image::FitTo::Original,
-                )
-                .unwrap();
-
-                let image =
-                    egui::Image::new(button_svg.texture_id(ui.ctx()), button_svg.size_vec2())
-                        .tint(properties.minimise_button_tint);
-
-                let button_image = image
+                let button = egui::Image::new(include_image!("./assets/minimise_button.svg"))
+                    .fit_to_fraction(egui::Vec2 { x: 0.8, y: 0.8 })
                     .sense(egui::Sense::hover())
-                    .sense(egui::Sense::click());
+                    .sense(egui::Sense::click())
+                    .tint(properties.minimise_button_tint);
 
-                let response = ui.add(button_image).on_hover_text("Minimize the window");
+                let response = ui.add(button).on_hover_text("Minimize the window");
 
                 if response.hovered() {
                     if ui.ctx().style().visuals.dark_mode == true {
@@ -164,7 +153,8 @@ pub fn task_bar(properties: &mut MainWindow, ui: &mut egui::Ui, frame: &mut efra
                     }
                 }
                 if response.clicked() {
-                    frame.set_minimized(true);
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                 }
             };
         });

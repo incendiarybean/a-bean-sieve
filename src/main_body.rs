@@ -1,25 +1,35 @@
-use std::thread;
+use std::{thread};
 
+use colored::Colorize;
 use eframe::{
-    egui::{self, CentralPanel, Margin, RichText, TextEdit},
+    egui::{
+        self, CentralPanel, Id,  Layout,
+        Margin, RichText, TextEdit, 
+    },
+    emath::Align,
     epaint::{Color32, Vec2},
 };
+use serde::Serialize;
 
-use crate::proxy::{Proxy, ProxyEvent};
+use crate::{proxy::{Proxy, ProxyEvent, ProxyExclusionRow}, custom_widgets, csv_handler};
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
+    let is_mac = std::env::consts::OS == "macos";
+
+    let top_margin = if is_mac { 35. } else { 5. };
     let panel_frame = egui::Frame {
         fill: ui.ctx().style().visuals.window_fill(),
         outer_margin: Margin {
             left: 5.0.into(),
             right: 5.0.into(),
-            top: 27.0.into(),
+            top: top_margin.into(),
             bottom: 5.0.into(),
         },
         inner_margin: 5.0.into(),
         ..Default::default()
     };
 
+    // Main window, split, control_panel left and logs_panel right
     CentralPanel::default()
         .frame(panel_frame)
         .show(ui.ctx(), |ui| {
@@ -30,31 +40,18 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
         });
 }
 
-// Toggle button from example Widgets
-// fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-//     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
-//     let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-//     if response.clicked() {
-//         *on = !*on;
-//         response.mark_changed();
-//     }
-//     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+// Run this on every frame to check if the port is valid
+fn check_startup_capability(port: &String) -> (bool, String) {
+    if let Err(_) = port.trim().parse::<u16>() {
+        return (false, String::from("Invalid Characters in Port."));
+    }
 
-//     if ui.is_rect_visible(rect) {
-//         let how_on = ui.ctx().animate_bool(response.id, *on);
-//         let visuals = ui.style().interact_selectable(&response, *on);
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         ui.painter()
-//             .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
-//         let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-//         let center = egui::pos2(circle_x, rect.center().y);
-//         ui.painter()
-//             .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
-//     }
+    if port.len() > 5 || port.len() < 1 {
+        return (false, String::from("Invalid Port Length."));
+    }
 
-//     response
-// }
+    (true, String::default())
+}
 
 // Left hand side panel
 fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
@@ -86,24 +83,11 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 x: ui.available_width(),
                                 y: 20.0,
                             });
+                        ui.add(input);
 
-                        if ui.add(input).changed() {
-                            // TODO: Please handle error handling better
-                            // This should be checked constantly, when it's first painted & when it's changed
-
-                            if let Err(_) = proxy.port.trim().parse::<u16>() {
-                                proxy.port_error = String::from("Invalid Characters in Port.");
-                                return proxy.start_enabled = false;
-                            }
-
-                            if proxy.port.len() > 5 || proxy.port.len() < 1 {
-                                proxy.port_error = String::from("Invalid Port Length.");
-                                return proxy.start_enabled = false;
-                            }
-
-                            proxy.start_enabled = true;
-                            proxy.port_error = String::default();
-                        }
+                        let (start_status, error_message) = check_startup_capability(&proxy.port);
+                        proxy.start_enabled = start_status;
+                        proxy.port_error = error_message;
                     }
 
                     if !proxy.port_error.is_empty() {
@@ -115,6 +99,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         );
                     }
 
+                    // Block start-up until the service is completely terminated
                     if current_proxy_status == "TERMINATING" {
                         proxy.start_enabled = false;
                     }
@@ -162,8 +147,8 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 });
 
                             if ui.add_enabled(proxy.start_enabled, start_button).clicked() {
-                                let prox = proxy.clone();
-                                thread::spawn(move || prox.proxy_service());
+                                let proxy_clone = proxy.clone();
+                                thread::spawn(move || proxy_clone.proxy_service());
                             }
                         }
 
@@ -203,6 +188,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 // Right side panel
 fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     if proxy.logs {
+        // TODO: Make the exclusion area take up more space if requests are closed
         ui.allocate_ui_with_layout(
             Vec2 {
                 x: ui.available_width(),
@@ -210,116 +196,276 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             },
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                // ui.vertical(|ui| {
-                //     let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
+                let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
 
-                //     let mut blocking = is_blocking;
-                //     let mut allow_requests_by_default = allow_requests_by_default;
+                let mut blocking = is_blocking;
+                let mut allow_requests_by_default = allow_requests_by_default;
 
-                //     // Get the default/current list for displaying
-                //     let default_list = if allow_requests_by_default {
-                //         &proxy.allow_list
-                //     } else {
-                //         &proxy.block_list
-                //     };
+                ui.horizontal(|ui| {
 
-                //     if ui
-                //         .checkbox(&mut blocking, "Enable Proxy Filtering")
-                //         .clicked()
-                //     {
-                //         // Need to switch these around as allowing_all_traffic value doesn't change until event has been sent
-                //         let updated_list = if allow_requests_by_default {
-                //             &proxy.block_list
-                //         } else {
-                //             &proxy.allow_list
-                //         };
+                    if ui
+                    .checkbox(&mut blocking, "Enable Proxy Filtering")
+                    .clicked()
+                    {
+                        proxy.enable_exclusion();
+                    }
+                        
+                    
+                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        ui.menu_button("Options", |ui| {
 
-                //         proxy
-                //             .event
-                //             .send(ProxyEvent::Blocking(blocking, updated_list.to_vec()))
-                //             .unwrap();
-                //     }
+                            if ui.button("Import Exclusion List").clicked() {
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                    println!("{}", path.display().to_string());
 
-                //     if is_blocking {
-                //         ui.horizontal(|ui| {
-                //             ui.label("Deny Incoming");
-                //             if toggle_ui(ui, &mut allow_requests_by_default).changed() {
-                //                 proxy
-                //                     .event
-                //                     .send(ProxyEvent::UpdateList(default_list.to_vec()))
-                //                     .unwrap();
-                //             }
-                //             ui.label("Allow Incoming");
-                //         });
-
-                //         ui.horizontal(|ui| {
-                //             ui.label("Exclusion List:");
-                //             if ui.button("options").clicked() {}
-                //         });
-
-                //         ui.add_space(4.);
-                //         ui.group(|ui| {
-                //             let exclusion_list = proxy.get_current_list();
-                //             let num_rows = exclusion_list.len();
-
-                //             egui::ScrollArea::new([true, true])
-                //                 .auto_shrink([false, false])
-                //                 .max_height(ui.available_height() / 3.0)
-                //                 .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                //                     for row in row_range {
-                //                         let string_value = match exclusion_list.get(row) {
-                //                             Some(value) => value,
-                //                             _ => "No value found",
-                //                         };
-                //                         ui.label(string_value);
-                //                     }
-                //                 });
-                //         });
-                //     }
-                //     ui.add_space(6.);
-                // });
-
-                ui.label("Request Log:");
-                ui.add_space(4.);
-                ui.push_id("request_logger", |ui| {
-                    ui.group(|ui| {
-                        let request_list = proxy.get_requests();
-                        let num_rows = request_list.len();
-                        egui::ScrollArea::new([true, true])
-                            .auto_shrink([false, false])
-                            .max_height(ui.available_height())
-                            .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                for row in row_range {
-                                    match request_list.get(row) {
-                                        Some((method, uri, blocked)) => ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(method).color(Color32::LIGHT_BLUE),
-                                            );
-                                            ui.label(uri);
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{}",
-                                                    if *blocked { "Blocked" } else { "Allowed" }
-                                                ))
-                                                .color(if *blocked {
-                                                    Color32::LIGHT_RED
-                                                } else {
-                                                    Color32::LIGHT_GREEN
-                                                }),
-                                            );
-                                            // let button_text =
-                                            //     if *blocked { "Unblock" } else { "Block" };
-
-                                            // if ui.button(button_text).clicked() {
-                                            //     println!("REQUEST TO {}, {}", button_text, uri);
-                                            // }
-                                        }),
-                                        _ => ui.horizontal(|ui| {
-                                            ui.label("No values Found");
-                                        }),
-                                    };
+                                    if let Err(error) = csv_handler::read_from_csv::<String>(path.display().to_string()) {
+                                        println!("{}", error);
+                                    }
                                 }
+                            }
+
+                            if ui.button("Export Exclusion List").clicked() {
+
+                                #[derive(Serialize)]
+                                struct ProxyExclusionList {
+                                    request: String,
+                                }
+
+                                let exclusion_list = proxy.get_current_list();
+                                let mut exclusion_list_export = Vec::<ProxyExclusionList>::new();
+                                for request in exclusion_list {
+                                    exclusion_list_export.push(ProxyExclusionList { request });
+                                }
+
+                                if let Some(path) = rfd::FileDialog::new().save_file() {                                     
+                                    if let Err(error) = csv_handler::write_csv_from_vec::<String>(path.display().to_string(), vec!["REQUEST".to_string()], proxy.get_current_list()) {
+                                        println!("{} -> {}", "There was an error".red(), error);
+                                    } else {
+                                        println!("{} -> {}", "Exported Exclusions to file".blue(), path.display().to_string().green());
+                                    }
+                                }
+                            }
+
+                            if ui.button("Export Request List").clicked() {
+                                if let Some(path) = rfd::FileDialog::new().save_file() {
+
+                                    #[derive(Serialize)]
+                                    struct ProxyRequestLog {
+                                        method: String,
+                                        request: String,
+                                        blocked: bool
+                                    }
+
+                                    let request_list = proxy.get_requests();
+                                    let mut request_list_export = Vec::<ProxyRequestLog>::new();
+                                    for request in request_list {
+                                        request_list_export.push(ProxyRequestLog { method: request.0, request: request.1, blocked: request.2 });
+                                    }
+
+                                    if let Err(error) = csv_handler::write_csv_from_vec::<ProxyRequestLog>(path.display().to_string(), vec!["METHOD".to_string(), "REQUEST".to_string(), "BLOCKED".to_string()], request_list_export) {
+                                        println!("{}", error);
+                                    } else {
+                                        println!("{}: {}", "Exported Requests to file".blue(), path.display().to_string().green());
+                                    }
+                                };
+                            }
+                        });
+                    });
+                });
+
+                if is_blocking {
+                    ui.horizontal(|ui| {
+                        ui.label("Deny Incoming");
+                        if custom_widgets::toggle_ui(ui, &mut allow_requests_by_default).changed() {
+                            proxy.switch_exclusion();
+                        }
+                        ui.label("Allow Incoming");
+                    });
+
+                    egui::CollapsingHeader::new("Request Exclusion List").default_open(false).show_unindented(ui, |ui| {
+                        ui.add_space(4.);
+                        let drop_response = custom_widgets::drop_target(ui, |ui| {
+                            ui.group(|ui| {
+                                let exclusion_list = proxy.get_current_list();
+                                let num_rows = exclusion_list.len();
+    
+                                egui::ScrollArea::new([true, true])
+                                    .auto_shrink([false, false])
+                                    .max_height(ui.available_height() / 3.0)
+                                    .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                        for row in row_range {
+                                            if let Some(uri) = exclusion_list.get(row) {
+                                                // Truncate value so it fits better
+                                                let mut uri_truncated = uri.to_string();
+                                                if uri_truncated.len() > 35 {
+                                                    uri_truncated.truncate(32);
+                                                    uri_truncated += "...";
+                                                }
+    
+                                                // TODO: Make this nicer!
+                                                ui.horizontal(|ui| {
+                                                    // Show save button if row is being edited, else edit and remove button
+                                                    if proxy.selected_exclusion_row.updating
+                                                        && row == proxy.selected_exclusion_row.row_index
+                                                    {
+                                                        ui.text_edit_singleline(
+                                                            &mut proxy.selected_exclusion_row.row_value,
+                                                        );
+    
+                                                        ui.with_layout(
+                                                            Layout::right_to_left(Align::Min),
+                                                            |ui| {
+                                                                if ui.button("Save").clicked() {
+                                                                    proxy.update_exclusion_list_value(
+                                                                        uri.to_string(),
+                                                                    );
+                                                                }
+                                                            },
+                                                        );
+                                                    } else {
+                                                        ui.label(
+                                                            RichText::new(uri_truncated).size(12.5),
+                                                        )
+                                                        .on_hover_text_at_pointer(uri);
+    
+                                                        ui.with_layout(
+                                                            Layout::right_to_left(Align::Min),
+                                                            |ui| {
+                                                                if ui.button("Remove").clicked() {
+                                                                    println!(
+                                                                        "{} - {}",
+                                                                        "Deleting item".green(),
+                                                                        uri.red()
+                                                                    );
+                                                                    proxy.dragging_value =
+                                                                        uri.to_string();
+                                                                    proxy.add_exclusion();
+                                                                };
+    
+                                                                if ui.button("Edit").clicked() {
+                                                                    proxy.selected_exclusion_row = ProxyExclusionRow {
+                                                                        updating: true,
+                                                                        row_index: row,
+                                                                        row_value: uri.to_string()
+                                                                    }
+                                                                }
+                                                            },
+                                                        );
+                                                    }
+                                                });
+                                                ui.add(egui::Separator::default());
+                                            }
+                                        }
+                                    });
                             });
+                        })
+                        .response;
+    
+                        // Check that an item is being dragged, it's over the drop zone and the mouse button is released
+                        let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
+                        if is_being_dragged
+                            && drop_response.hovered()
+                            && !proxy.selected_exclusion_row.updating
+                        {
+                            if ui.input(|i| i.pointer.any_released()) {
+                                proxy.add_exclusion();
+                            }
+                        }
+                    }); 
+                }
+                
+                egui::CollapsingHeader::new("Request Log").default_open(true).show_unindented(ui, |ui| {
+                    ui.add_space(4.);
+                    ui.push_id("request_logger", |ui| {
+                        ui.group(|ui| {
+                            let request_list = proxy.get_requests();
+                            let num_rows = request_list.len();
+
+                            egui::ScrollArea::new([true, true])
+                                .auto_shrink([false, false])
+                                .max_height(ui.available_height())
+                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                    for row in row_range {
+                                        match request_list.get(row) {
+                                            Some((method, uri, blocked)) => ui.horizontal(|ui| {
+                                                let mut uri_truncated = uri.clone();
+                                                if uri_truncated.len() > 35 {
+                                                    uri_truncated.truncate(35);
+                                                    uri_truncated += "...";
+                                                }
+
+                                                let item_id = Id::new(format!(
+                                                    "{}-{}-{}-{}",
+                                                    method, uri, blocked, row
+                                                ));
+                                                ui.with_layout(
+                                                    Layout::left_to_right(eframe::emath::Align::Center),
+                                                    |ui| {
+                                                        custom_widgets::drag_source(ui, item_id, |ui| {
+                                                            ui.horizontal(|ui| {
+                                                                ui.with_layout(
+                                                                    Layout::left_to_right(Align::Max),
+                                                                    |ui| {
+                                                                        ui.label(
+                                                                            RichText::new(method)
+                                                                                .color(
+                                                                                    Color32::LIGHT_BLUE,
+                                                                                )
+                                                                                .size(12.5),
+                                                                        );
+                                                                        ui.label(uri_truncated)
+                                                                            .on_hover_text_at_pointer(
+                                                                                uri,
+                                                                            );
+                                                                    },
+                                                                );
+                                                            });
+                                                        });
+                                                    },
+                                                );
+
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        let button_text =
+                                                            if *blocked { "Unblock" } else { "Block" };
+
+                                                        if ui.button(button_text).clicked() {
+                                                            proxy.dragging_value = uri.to_string();
+                                                            proxy.add_exclusion();
+                                                        }
+
+                                                        ui.label(
+                                                            RichText::new(format!(
+                                                                "{}",
+                                                                if *blocked {
+                                                                    "Blocked"
+                                                                } else {
+                                                                    "Allowed"
+                                                                }
+                                                            ))
+                                                            .color(if *blocked {
+                                                                Color32::LIGHT_RED
+                                                            } else {
+                                                                Color32::LIGHT_GREEN
+                                                            }),
+                                                        );
+                                                    },
+                                                );
+
+                                                if ui.memory(|mem| mem.is_being_dragged(item_id)) {
+                                                    proxy.dragging_value = uri.to_string()
+                                                }
+                                            }),
+                                            _ => ui.horizontal(|ui| {
+                                                ui.label("No values Found");
+                                            }),
+                                        };
+
+                                        ui.add(egui::Separator::default());
+                                    }
+                                });
+                        });
                     });
                 });
             },
