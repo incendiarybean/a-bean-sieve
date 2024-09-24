@@ -15,10 +15,16 @@ fn main() -> Result<(), eframe::Error> {
     let icon: &[u8] = include_bytes!("assets/icon.png");
     let img: image::DynamicImage = image::load_from_memory(icon).unwrap();
 
+    #[cfg(not(target_os = "windows"))]
+    let decorations = false;
+
+    #[cfg(target_os = "windows")]
+    let decorations = true;
+
     let options = eframe::NativeOptions {
         follow_system_theme: true,
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_decorations(true)
+            .with_decorations(decorations)
             .with_transparent(true)
             .with_max_inner_size(egui::vec2(650.0, 500.0))
             .with_min_inner_size(egui::vec2(250.0, 160.0))

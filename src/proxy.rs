@@ -1,12 +1,8 @@
 use colored::Colorize;
 use http_body_util::Full;
 use hyper::{
-    body::{Body, Bytes},
-    http,
-    server::conn::http1,
-    service::service_fn,
-    upgrade::Upgraded,
-    Method, Request, Response,
+    body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
+    Request, Response,
 };
 use hyper_util::{rt::TokioIo, server::graceful};
 use std::{
@@ -17,7 +13,10 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::oneshot,
+};
 
 #[derive(Debug)]
 pub enum ProxyEvent {
@@ -173,88 +172,6 @@ impl Default for Proxy {
 }
 
 impl Proxy {
-    #[tokio::main]
-    pub async fn proxy_service(self) {
-        let addr = SocketAddr::from((
-            [127, 0, 0, 1],
-            self.port.trim().parse::<u16>().unwrap().clone(),
-        ));
-
-        // Create a oneshot channel for sending a single burst of a termination signal
-        let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
-
-        // let client = Client::builder()
-        //     .http1_title_case_headers(true)
-        //     .http1_preserve_header_case(true)
-        //     .build_http();
-
-        let request_event_sender = self.event.clone();
-        // let make_service = make_service_fn(move |_| {
-        // let client = client.clone();
-        let request_event_sender = request_event_sender.clone();
-
-        // Check if address blocking is currently in use
-        let is_blocking = match self.allow_blocking.lock() {
-            Ok(is_blocking) => *is_blocking,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
-
-        let allow_by_default = match self.allow_requests_by_default.lock() {
-            Ok(allow_by_default) => *allow_by_default,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
-
-        let configured_list = match self.current_list.lock() {
-            Ok(current_list) => current_list,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-
-        let configured_list = configured_list.clone();
-        // async move {
-        //     Ok::<_, Infallible>(service_fn(move |request| {
-        //         return Self::request(
-        //             client.clone(),
-        //             request,
-        //             request_event_sender.clone(),
-        //             is_blocking,
-        //             allow_by_default.clone(),
-        //             configured_list.clone(),
-        //         );
-        //     }))
-        // };
-        // });
-
-        // I try to bind here to check if the Port is available to bind to
-        // let server = Server::try_bind(&addr);
-        // match server {
-        //     Ok(builder) => {
-        //         println!("{}", "Starting Service.".bright_blue());
-        //         self.event.send(ProxyEvent::Running).unwrap();
-
-        //         // Create handler for monitoring ProxyEvent - Termination Status
-        //         let event_clone = self.event.clone();
-        //         thread::spawn(move || {
-        //             Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
-        //         });
-
-        //         // Create server
-        //         let server = builder
-        //             .http1_preserve_header_case(true)
-        //             .http1_title_case_headers(true)
-        //             .serve(make_service)
-        //             .with_graceful_shutdown(async {
-        //                 shutdown_rec.await.ok();
-        //             });
-
-        //         // Run server non-stop unless there's an error
-        //         if let Err(_) = server.await {
-        //             self.event.send(ProxyEvent::Error).unwrap();
-        //         }
-        //     }
-        //     Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
-        // }
-    }
-
     /// Restores previous state and returns the Proxy
     ///
     /// # Arguments
@@ -295,14 +212,14 @@ impl Proxy {
     /// Handles termination of the service
     ///
     /// # Arguments
-    /// * `shutdown_sig` - A oneshot signal to terminate the service
     /// * `event` - The event sender to write current state
     /// * `status` - The current ProxyEvent status
-    fn handle_termination(
-        shutdown_sig: tokio::sync::oneshot::Sender<()>,
+    async fn handle_termination(
         event: std::sync::mpsc::Sender<ProxyEvent>,
         status: Arc<Mutex<ProxyEvent>>,
-    ) {
+    ) -> oneshot::Receiver<()> {
+        let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
+
         loop {
             // We don't care about waiting a second, as long as it keeps CPU usage down
             thread::sleep(Duration::from_millis(1000));
@@ -328,6 +245,8 @@ impl Proxy {
         // Send event to show it's Terminated/Stopped
         event.send(ProxyEvent::Terminated).unwrap();
         println!("{}", "Terminated Service.".red());
+
+        shutdown_rec
     }
 
     #[tokio::main]
@@ -337,17 +256,11 @@ impl Proxy {
             self.port.trim().parse::<u16>().unwrap().clone(),
         ));
 
-        // Create a oneshot channel for sending a single burst of a termination signal
-        let (shutdown_sig, shutdown_rec) = tokio::sync::oneshot::channel::<()>();
-
         let event_clone = self.event.clone();
-        thread::spawn(move || {
-            Self::handle_termination(shutdown_sig, event_clone, self.status.clone());
-        });
 
         let graceful = graceful::GracefulShutdown::new();
 
-        let mut signal = std::pin::pin!(shutdown_rec);
+        let mut signal = std::pin::pin!(Self::handle_termination(event_clone, self.status.clone()));
 
         let http = http1::Builder::new();
 
@@ -396,7 +309,7 @@ impl Proxy {
                             });
                         },
 
-                        _ = &mut signal => {}
+                        _ = &mut signal => break
                     }
                 }
             }
