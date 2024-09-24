@@ -1,18 +1,13 @@
 use eframe::{
-    egui::{self, CentralPanel},
-    epaint::{Color32, Stroke, Vec2},
+    egui::{self, CentralPanel, Rounding},
+    epaint::{Color32, Stroke},
 };
 
-use crate::{main_body, proxy::Proxy, task_bar};
+use crate::{main_body, proxy::Proxy};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainWindow {
-    // Handle colour change of hovering over TaskBar buttons
-    pub close_button_tint: Color32,
-    pub minimise_button_tint: Color32,
-    pub maximise_button_tint: Color32,
-
     // Handle all Proxy Details
     pub proxy: Proxy,
 }
@@ -21,13 +16,7 @@ impl Default for MainWindow {
     fn default() -> Self {
         let proxy = Proxy::default();
 
-        Self {
-            close_button_tint: Color32::WHITE,
-            minimise_button_tint: Color32::WHITE,
-            maximise_button_tint: Color32::WHITE,
-
-            proxy,
-        }
+        Self { proxy }
     }
 }
 
@@ -53,9 +42,6 @@ impl MainWindow {
 
             // Create new proxy to generate mutables
             return Self {
-                close_button_tint: previous_values.close_button_tint,
-                minimise_button_tint: previous_values.minimise_button_tint,
-                maximise_button_tint: previous_values.maximise_button_tint,
                 proxy: Proxy::default().restore_previous(
                     previous_values.proxy.port,
                     previous_values.proxy.port_error,
@@ -79,7 +65,6 @@ impl eframe::App for MainWindow {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let is_maximised = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-        let is_mac = std::env::consts::OS == "macos";
 
         // Start Window enlarged if the Log Window is open
         if self.proxy.logs && !is_maximised {
@@ -94,11 +79,15 @@ impl eframe::App for MainWindow {
             }));
         }
 
-        let width = if is_mac { 1. } else { 0. };
         let panel_frame = egui::Frame {
             fill: ctx.style().visuals.window_fill(),
-            rounding: 7.0.into(),
-            stroke: Stroke::new(width, Color32::LIGHT_GRAY),
+            rounding: Rounding {
+                nw: 0.,
+                ne: 0.,
+                sw: 10.,
+                se: 10.,
+            },
+            stroke: Stroke::new(0., Color32::LIGHT_GRAY),
             outer_margin: 0.1.into(),
             ..Default::default()
         };
@@ -106,9 +95,9 @@ impl eframe::App for MainWindow {
         // Main layout of UI, task_bar top and main_body bottom
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                if std::env::consts::OS == "macos" {
-                    task_bar::task_bar(self, ui);
-                }
+                // if std::env::consts::OS == "macos" {
+                //     task_bar::task_bar(self, ui);
+                // }
                 main_body::main_body(&mut self.proxy, ui);
             });
         });

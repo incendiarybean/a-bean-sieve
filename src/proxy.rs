@@ -7,6 +7,7 @@ use hyper::{
 use hyper_util::{rt::TokioIo, server::graceful};
 use std::{
     convert::Infallible,
+    fmt::Debug,
     io,
     net::SocketAddr,
     sync::{Arc, Mutex},
@@ -22,12 +23,18 @@ use tokio::{
 pub enum ProxyEvent {
     Running,
     Stopped,
-    Error,
+    Error(String),
     Terminating,
     Terminated,
     RequestEvent((String, String, bool)),
     Blocking(Vec<String>),
     SwitchList(Vec<String>),
+}
+
+impl std::fmt::Display for ProxyEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -138,15 +145,24 @@ impl Default for Proxy {
                         let mut current_list = current_list_clone.lock().unwrap();
                         *current_list = exclusion_list;
                     }
+                    ProxyEvent::Error(message) => {
+                        println!("{:?}", message.red())
+                    }
+                    ProxyEvent::Running => {
+                        println!("{}", "Running service...".green());
+                        let mut status = status_clone.lock().unwrap();
+
+                        *status = event;
+                    }
                     _ => {
                         // If there is no custom event handler, simply set the value of status to this event type
                         let mut status = status_clone.lock().unwrap();
                         *status = event;
                     }
                 },
-                Err(_) => {
+                Err(message) => {
                     let mut status = status_clone.lock().unwrap();
-                    *status = ProxyEvent::Error
+                    *status = ProxyEvent::Error(message.to_string())
                 }
             }
         });
@@ -233,7 +249,7 @@ impl Proxy {
             match *status {
                 ProxyEvent::Terminating => {
                     match shutdown_sig.send(()) {
-                        Ok(_) => println!("{}", "Terminating Service.".red()),
+                        Ok(_) => {}
                         Err(error) => println!("{:?}", error),
                     };
                     break;
@@ -303,8 +319,8 @@ impl Proxy {
                             // watch this connection
                             let connection_monitor = graceful.watch(connection);
                             tokio::spawn(async move {
-                                if let Err(error) = connection_monitor.await {
-                                    error_event_sender.send(ProxyEvent::Error).unwrap();
+                                if let Err(message) = connection_monitor.await {
+                                    error_event_sender.send(ProxyEvent::Error(message.to_string())).unwrap();
                                 }
                             });
                         },
@@ -313,7 +329,10 @@ impl Proxy {
                     }
                 }
             }
-            Err(_) => self.event.send(ProxyEvent::Error).unwrap(),
+            Err(message) => self
+                .event
+                .send(ProxyEvent::Error(message.to_string()))
+                .unwrap(),
         }
 
         Ok(())
@@ -342,7 +361,6 @@ impl Proxy {
         event.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
         if is_blocking {
-            // If we're allowing traffic but it's in the exception list - block it
             // If we're blocking traffic but it's in the exception list - block it
             if (is_excluded_address && allow_by_default)
                 || (!is_excluded_address & !allow_by_default)
@@ -406,7 +424,7 @@ impl Proxy {
         let current_proxy_status = match *proxy_state {
             ProxyEvent::Running => "RUNNING",
             ProxyEvent::Stopped => "STOPPED",
-            ProxyEvent::Error => "ERROR",
+            ProxyEvent::Error(_) => "ERROR",
             ProxyEvent::Terminating => "TERMINATING",
             ProxyEvent::Terminated => "TERMINATED",
             _ => "NOT COVERED",

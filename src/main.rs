@@ -9,7 +9,6 @@ mod custom_widgets;
 mod default_window;
 mod main_body;
 mod proxy;
-mod task_bar;
 
 fn main() -> Result<(), eframe::Error> {
     let icon: &[u8] = include_bytes!("assets/icon.png");
@@ -29,6 +28,7 @@ fn main() -> Result<(), eframe::Error> {
             .with_max_inner_size(egui::vec2(650.0, 500.0))
             .with_min_inner_size(egui::vec2(250.0, 160.0))
             .with_resizable(false)
+            .with_maximize_button(false)
             .with_icon(Arc::new(egui::viewport::IconData {
                 rgba: img.into_bytes(),
                 width: 288,
@@ -43,7 +43,7 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::new(default_window::MainWindow::new(cc))
+            Ok(Box::new(default_window::MainWindow::new(cc)))
         }),
     )
 }
