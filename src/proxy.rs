@@ -71,6 +71,8 @@ pub struct Proxy {
 
     // Skip these as Default values are fine
     #[serde(skip)]
+    pub run_time: Arc<Mutex<Option<std::time::Instant>>>,
+    #[serde(skip)]
     pub event: std::sync::mpsc::Sender<ProxyEvent>,
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
@@ -98,6 +100,9 @@ impl Default for Proxy {
         let current_list = Arc::new(Mutex::new(Vec::<String>::new()));
         let current_list_clone = Arc::clone(&current_list);
 
+        let run_time = Arc::new(Mutex::new(None));
+        let run_time_clone = Arc::clone(&run_time);
+
         thread::spawn(move || -> ! {
             loop {
                 // Sleep loop to loosen CPU stress
@@ -109,6 +114,9 @@ impl Default for Proxy {
                         ProxyEvent::Terminated | ProxyEvent::Stopped => {
                             let mut status = status_clone.lock().unwrap();
                             *status = ProxyEvent::Stopped;
+
+                            let mut run_time = run_time_clone.lock().unwrap();
+                            *run_time = None;
                         }
                         ProxyEvent::RequestEvent((method, uri, blocked)) => {
                             // We need to have a --no-gui option to enable this
@@ -150,8 +158,11 @@ impl Default for Proxy {
                         }
                         ProxyEvent::Running => {
                             println!("{}", "Running service...".green());
-                            let mut status = status_clone.lock().unwrap();
 
+                            let mut run_time = run_time_clone.lock().unwrap();
+                            *run_time = Some(std::time::Instant::now());
+
+                            let mut status = status_clone.lock().unwrap();
                             *status = event;
                         }
                         _ => {
@@ -184,6 +195,7 @@ impl Default for Proxy {
             allow_list: Vec::<String>::new(),
             block_list: Vec::<String>::new(),
             current_list,
+            run_time,
         }
     }
 }
@@ -205,6 +217,7 @@ impl Proxy {
         match listener {
             Ok(listener) => {
                 self.event.send(ProxyEvent::Running).unwrap();
+
                 let event_sender = self.event.clone();
 
                 loop {
@@ -435,6 +448,19 @@ impl Proxy {
         Full::new(chunk.into())
             .map_err(|never| match never {})
             .boxed()
+    }
+
+    /// Returns the Proxy's run-time
+    pub fn get_run_time(&mut self) -> String {
+        let run_time = match self.run_time.lock() {
+            Ok(run_time) => run_time,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        match *run_time {
+            Some(duration) => duration.elapsed().as_secs().to_string(),
+            None => 0.to_string(),
+        }
     }
 
     /// Returns the Proxy's current status

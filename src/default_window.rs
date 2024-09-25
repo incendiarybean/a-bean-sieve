@@ -8,7 +8,6 @@ use crate::{main_body, proxy::Proxy};
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainWindow {
-    // Handle all Proxy Details
     pub proxy: Proxy,
 }
 

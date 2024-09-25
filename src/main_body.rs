@@ -101,6 +101,34 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 .color(Color32::LIGHT_GREEN),
                         ));
                     });
+
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                        ui.add(egui::Label::new("Proxy Events: "));
+                        ui.add(egui::Label::new(
+                            RichText::new(format!("{}", proxy.get_requests().len()))
+                                .color(Color32::LIGHT_GREEN),
+                        ));
+                    });
+
+                    if proxy.get_blocking_status().0 {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                            ui.add(egui::Label::new("Events Blocked: "));
+                            ui.add(egui::Label::new(
+                                RichText::new(format!("{}", proxy.get_requests().into_iter().map(|item| !item.2).len()))
+                                    .color(Color32::LIGHT_GREEN),
+                            ));
+                        });
+                    }
+
+                    if proxy.get_blocking_status().0 {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                            ui.add(egui::Label::new("Session Duration: "));
+                            ui.add(egui::Label::new(
+                                RichText::new(format!("{}", proxy.get_run_time()))
+                                    .color(Color32::LIGHT_GREEN),
+                            ));
+                        });
+                    }
                 }
 
                 // Proxy Control buttons
