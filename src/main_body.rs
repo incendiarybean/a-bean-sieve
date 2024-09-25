@@ -123,7 +123,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
                             ui.add(egui::Label::new("Session Duration: "));
                             ui.add(egui::Label::new(
-                                RichText::new(format!("{}", proxy.get_run_time()))
+                                RichText::new(format!("{}s", proxy.get_run_time()))
                                     .color(Color32::LIGHT_GREEN),
                             ));
                         });
