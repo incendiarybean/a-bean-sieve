@@ -51,6 +51,18 @@ impl Default for ProxyExclusionRow {
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct ProxyRequestLog {
+    pub method: String,
+    pub request: String,
+    pub blocked: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct ProxyExclusionList {
+    pub request: String,
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
 pub struct Proxy {

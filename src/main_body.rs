@@ -7,9 +7,8 @@ use eframe::{
     emath::Align,
     epaint::{Color32, Vec2},
 };
-use serde::Serialize;
 
-use crate::{proxy::{Proxy, ProxyEvent, ProxyExclusionRow}, custom_widgets, csv_handler};
+use crate::{csv_handler, custom_widgets, proxy::{Proxy, ProxyEvent, ProxyExclusionList, ProxyExclusionRow, ProxyRequestLog}};
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
@@ -246,12 +245,6 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                             }
 
                             if ui.button("Export Exclusion List").clicked() {
-
-                                #[derive(Serialize)]
-                                struct ProxyExclusionList {
-                                    request: String,
-                                }
-
                                 let exclusion_list = proxy.get_current_list();
                                 let mut exclusion_list_export = Vec::<ProxyExclusionList>::new();
                                 for request in exclusion_list {
@@ -269,13 +262,6 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                             if ui.button("Export Request List").clicked() {
                                 if let Some(path) = rfd::FileDialog::new().save_file() {
-
-                                    #[derive(Serialize)]
-                                    struct ProxyRequestLog {
-                                        method: String,
-                                        request: String,
-                                        blocked: bool
-                                    }
 
                                     let request_list = proxy.get_requests();
                                     let mut request_list_export = Vec::<ProxyRequestLog>::new();
@@ -305,93 +291,79 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                     egui::CollapsingHeader::new("Request Exclusion List").default_open(false).show_unindented(ui, |ui| {
                         ui.add_space(4.);
-                        // let drop_response = custom_widgets::drop_target(ui, |ui| {
-                            ui.group(|ui| {
-                                let exclusion_list = proxy.get_current_list();
-                                let num_rows = exclusion_list.len();
-    
-                                egui::ScrollArea::new([true, true])
-                                    .auto_shrink([false, false])
-                                    .max_height(ui.available_height() / 3.0)
-                                    .show_rows(ui, 18.0, num_rows, |ui, row_range| {
-                                        for row in row_range {
-                                            if let Some(uri) = exclusion_list.get(row) {
-                                                // Truncate value so it fits better
-                                                let mut uri_truncated = uri.to_string();
-                                                if uri_truncated.len() > 35 {
-                                                    uri_truncated.truncate(32);
-                                                    uri_truncated += "...";
-                                                }
-    
-                                                // TODO: Make this nicer!
-                                                ui.horizontal(|ui| {
-                                                    // Show save button if row is being edited, else edit and remove button
-                                                    if proxy.selected_exclusion_row.updating
-                                                        && row == proxy.selected_exclusion_row.row_index
-                                                    {
-                                                        ui.text_edit_singleline(
-                                                            &mut proxy.selected_exclusion_row.row_value,
-                                                        );
-    
-                                                        ui.with_layout(
-                                                            Layout::right_to_left(Align::Min),
-                                                            |ui| {
-                                                                if ui.button("Save").clicked() {
-                                                                    proxy.update_exclusion_list_value(
-                                                                        uri.to_string(),
-                                                                    );
-                                                                }
-                                                            },
-                                                        );
-                                                    } else {
-                                                        ui.label(
-                                                            RichText::new(uri_truncated).size(12.5),
-                                                        )
-                                                        .on_hover_text_at_pointer(uri);
-    
-                                                        ui.with_layout(
-                                                            Layout::right_to_left(Align::Min),
-                                                            |ui| {
-                                                                if ui.button("Remove").clicked() {
-                                                                    println!(
-                                                                        "{} - {}",
-                                                                        "Deleting item".green(),
-                                                                        uri.red()
-                                                                    );
-                                                                    proxy.dragging_value =
-                                                                        uri.to_string();
-                                                                    proxy.add_exclusion();
-                                                                };
-    
-                                                                if ui.button("Edit").clicked() {
-                                                                    proxy.selected_exclusion_row = ProxyExclusionRow {
-                                                                        updating: true,
-                                                                        row_index: row,
-                                                                        row_value: uri.to_string()
-                                                                    }
-                                                                }
-                                                            },
-                                                        );
-                                                    }
-                                                });
-                                                ui.add(egui::Separator::default());
+                        ui.group(|ui| {
+                            let exclusion_list = proxy.get_current_list();
+                            let num_rows = exclusion_list.len();
+
+                            egui::ScrollArea::new([true, true])
+                                .auto_shrink([false, false])
+                                .max_height(ui.available_height() / 3.0)
+                                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                                    for row in row_range {
+                                        if let Some(uri) = exclusion_list.get(row) {
+                                            // Truncate value so it fits better
+                                            let mut uri_truncated = uri.to_string();
+                                            if uri_truncated.len() > 35 {
+                                                uri_truncated.truncate(32);
+                                                uri_truncated += "...";
                                             }
+
+                                            // TODO: Make this nicer!
+                                            ui.horizontal(|ui| {
+                                                // Show save button if row is being edited, else edit and remove button
+                                                if proxy.selected_exclusion_row.updating
+                                                    && row == proxy.selected_exclusion_row.row_index
+                                                {
+                                                    ui.text_edit_singleline(
+                                                        &mut proxy.selected_exclusion_row.row_value,
+                                                    );
+
+                                                    ui.with_layout(
+                                                        Layout::right_to_left(Align::Min),
+                                                        |ui| {
+                                                            if ui.button("Save").clicked() {
+                                                                proxy.update_exclusion_list_value(
+                                                                    uri.to_string(),
+                                                                );
+                                                            }
+                                                        },
+                                                    );
+                                                } else {
+                                                    ui.label(
+                                                        RichText::new(uri_truncated).size(12.5),
+                                                    )
+                                                    .on_hover_text_at_pointer(uri);
+
+                                                    ui.with_layout(
+                                                        Layout::right_to_left(Align::Min),
+                                                        |ui| {
+                                                            if ui.button("Remove").clicked() {
+                                                                println!(
+                                                                    "{} - {}",
+                                                                    "Deleting item".green(),
+                                                                    uri.red()
+                                                                );
+                                                                proxy.dragging_value =
+                                                                    uri.to_string();
+                                                                proxy.add_exclusion();
+                                                            };
+
+                                                            if ui.button("Edit").clicked() {
+                                                                proxy.selected_exclusion_row = ProxyExclusionRow {
+                                                                    updating: true,
+                                                                    row_index: row,
+                                                                    row_value: uri.to_string()
+                                                                }
+                                                            }
+                                                        },
+                                                    );
+                                                }
+                                            });
+                                            ui.add(egui::Separator::default());
                                         }
-                                    });
-                            });
-                        // })
-                        // .response;
-    
-                        // Check that an item is being dragged, it's over the drop zone and the mouse button is released
-                        // let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
-                        // if is_being_dragged
-                        //     && drop_response.hovered()
-                        //     && !proxy.selected_exclusion_row.updating
-                        // {
-                        //     if ui.input(|i| i.pointer.any_released()) {
-                        //         proxy.add_exclusion();
-                        //     }
-                        // }
+                                    }
+                                });
+                        });
                     }); 
                 }
                 
@@ -409,20 +381,16 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                     for row in row_range {
                                         match request_list.get(row) {
                                             Some((method, uri, blocked)) => ui.horizontal(|ui| {
+
                                                 let mut uri_truncated = uri.clone();
                                                 if uri_truncated.len() > 35 {
                                                     uri_truncated.truncate(35);
                                                     uri_truncated += "...";
                                                 }
 
-                                                // let item_id = Id::new(format!(
-                                                //     "{}-{}-{}-{}",
-                                                //     method, uri, blocked, row
-                                                // ));
                                                 ui.with_layout(
                                                     Layout::left_to_right(eframe::emath::Align::Center),
                                                     |ui| {
-                                                        // custom_widgets::drag_source(ui, item_id, |ui| {
                                                             ui.horizontal(|ui| {
                                                                 ui.with_layout(
                                                                     Layout::left_to_right(Align::Max),
@@ -441,7 +409,6 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                                     },
                                                                 );
                                                             });
-                                                        // });
                                                     },
                                                 );
 
@@ -474,9 +441,6 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                     },
                                                 );
 
-                                                // if ui.memory(|mem| mem.is_being_dragged(item_id)) {
-                                                //     proxy.dragging_value = uri.to_string()
-                                                // }
                                             }),
                                             _ => ui.horizontal(|ui| {
                                                 ui.label("No values Found");
