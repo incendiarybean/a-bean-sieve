@@ -1,10 +1,8 @@
-use std::thread;
-
 use colored::Colorize;
 use eframe::{
     egui::{
-        self, CentralPanel, Id,  Layout,
-        Margin, RichText, TextEdit, 
+        self, CentralPanel, Layout,
+        RichText, TextEdit, 
     },
     emath::Align,
     epaint::{Color32, Vec2},
@@ -51,8 +49,6 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let current_proxy_status = proxy.get_status();
 
     // Create UI in downward direction
-    // use height of base app as we don't want to full up the entire space horizontally
-    // Use current height as we want to fill up the entire space vertically
     ui.allocate_ui_with_layout(
         Vec2 {
             x: 230.,
@@ -60,7 +56,6 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
         },
         egui::Layout::top_down_justified(egui::Align::Min),
         |ui| {
-            // TODO: Do I want this in a group? Does it look dumb?
             ui.group(|ui| {
                 // Label and Port input
                 ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
@@ -141,7 +136,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                             if ui.add_enabled(proxy.start_enabled, start_button).clicked() {
                                 let proxy_clone = proxy.clone();
-                                thread::spawn(move || proxy_clone.proxy_service());
+                                std::thread::spawn(move || proxy_clone.proxy_service());
                             }
                         }
 
@@ -158,6 +153,11 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                         if ui.add_enabled(true, logs_button).clicked() {
                             proxy.logs = !proxy.logs;
+
+                            #[cfg(target_os = "windows")]
+                            if proxy.logs {
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(650., 500.)));
+                            }
                         }
                     });
 
@@ -277,7 +277,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                     egui::CollapsingHeader::new("Request Exclusion List").default_open(false).show_unindented(ui, |ui| {
                         ui.add_space(4.);
-                        let drop_response = custom_widgets::drop_target(ui, |ui| {
+                        // let drop_response = custom_widgets::drop_target(ui, |ui| {
                             ui.group(|ui| {
                                 let exclusion_list = proxy.get_current_list();
                                 let num_rows = exclusion_list.len();
@@ -351,19 +351,19 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                         }
                                     });
                             });
-                        })
-                        .response;
+                        // })
+                        // .response;
     
                         // Check that an item is being dragged, it's over the drop zone and the mouse button is released
-                        let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
-                        if is_being_dragged
-                            && drop_response.hovered()
-                            && !proxy.selected_exclusion_row.updating
-                        {
-                            if ui.input(|i| i.pointer.any_released()) {
-                                proxy.add_exclusion();
-                            }
-                        }
+                        // let is_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
+                        // if is_being_dragged
+                        //     && drop_response.hovered()
+                        //     && !proxy.selected_exclusion_row.updating
+                        // {
+                        //     if ui.input(|i| i.pointer.any_released()) {
+                        //         proxy.add_exclusion();
+                        //     }
+                        // }
                     }); 
                 }
                 
@@ -387,14 +387,14 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                     uri_truncated += "...";
                                                 }
 
-                                                let item_id = Id::new(format!(
-                                                    "{}-{}-{}-{}",
-                                                    method, uri, blocked, row
-                                                ));
+                                                // let item_id = Id::new(format!(
+                                                //     "{}-{}-{}-{}",
+                                                //     method, uri, blocked, row
+                                                // ));
                                                 ui.with_layout(
                                                     Layout::left_to_right(eframe::emath::Align::Center),
                                                     |ui| {
-                                                        custom_widgets::drag_source(ui, item_id, |ui| {
+                                                        // custom_widgets::drag_source(ui, item_id, |ui| {
                                                             ui.horizontal(|ui| {
                                                                 ui.with_layout(
                                                                     Layout::left_to_right(Align::Max),
@@ -413,7 +413,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                                     },
                                                                 );
                                                             });
-                                                        });
+                                                        // });
                                                     },
                                                 );
 
@@ -446,9 +446,9 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                     },
                                                 );
 
-                                                if ui.memory(|mem| mem.is_being_dragged(item_id)) {
-                                                    proxy.dragging_value = uri.to_string()
-                                                }
+                                                // if ui.memory(|mem| mem.is_being_dragged(item_id)) {
+                                                //     proxy.dragging_value = uri.to_string()
+                                                // }
                                             }),
                                             _ => ui.horizontal(|ui| {
                                                 ui.label("No values Found");

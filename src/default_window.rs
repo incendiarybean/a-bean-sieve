@@ -64,29 +64,31 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let is_maximised = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-
-        // Start Window enlarged if the Log Window is open
-        if self.proxy.logs && !is_maximised {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2 {
-                x: 650.0,
-                y: 500.0,
-            }));
-        } else if !self.proxy.logs && !is_maximised {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2 {
-                x: 250.0,
-                y: 160.0,
-            }));
+        if self.proxy.logs {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(650., 500.)));
+        } else if !self.proxy.logs {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250., 160.)));
         }
+
+        #[cfg(target_os = "macos")]
+        let rounding = Rounding {
+            nw: 0.,
+            ne: 0.,
+            sw: 10.,
+            se: 10.,
+        };
+
+        #[cfg(not(target_os = "macos"))]
+        let rounding = Rounding {
+            nw: 0.,
+            ne: 0.,
+            sw: 5.,
+            se: 5.,
+        };
 
         let panel_frame = egui::Frame {
             fill: ctx.style().visuals.window_fill(),
-            rounding: Rounding {
-                nw: 0.,
-                ne: 0.,
-                sw: 10.,
-                se: 10.,
-            },
+            rounding,
             stroke: Stroke::new(0., Color32::LIGHT_GRAY),
             outer_margin: 0.1.into(),
             ..Default::default()
@@ -94,12 +96,7 @@ impl eframe::App for MainWindow {
 
         // Main layout of UI, task_bar top and main_body bottom
         CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                // if std::env::consts::OS == "macos" {
-                //     task_bar::task_bar(self, ui);
-                // }
-                main_body::main_body(&mut self.proxy, ui);
-            });
+            main_body::main_body(&mut self.proxy, ui);
         });
     }
 
