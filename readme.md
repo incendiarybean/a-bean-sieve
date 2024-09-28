@@ -12,25 +12,36 @@ A logger is provided to view the previous requests and whether they've been bloc
 
 ### How to use?
 
-Simply create `allow_list.csv` & `block_list.csv` files with a title column named _uri_ and then a list of Strings containing the exclusions.
+Simply start the service on the desired port and choose whether to enable blocking or not.
 
-> **Example:** `allow_list.csv` could contain _google.com_ and when in use, only addresses containing variations of _google.com_ are allowed.
+Point any application you wish to run through the service by using the IP & PORT.
 
-Or, you can wait until the requests start piling up and you can dynamically add addresses to the exclusion lists - these can be exported (eventually).
+Once you view requests passing through the service, you can choose to add specific requests to an exclusion list.
+
+There are 2 options of exclusions - depending on the chosen solution you are given either an allow list or a deny list.
+
+With the allow list, requests are allowed by default and only items in the exclusion list are blocked.
+
+With the deny list, requests are blocked by default and only items in the exclusion list are allowed.
+
+> **Example:** The `Allow Incoming` list could contain _google.com_ and when in use, only addresses containing variations of _google.com_ are allowed.
+
+Eventually you will be able to Import/Export these lists into CSV - by default, previous sessions are saved so lists and settings remain the same between application runs.
 
 ### Feature Plans:
 
 The following are my currently designated tasks, they may not be completed in order.
 
 - [] Add dynamic filtering and requests logs.
-- [] Create dynamic allow & deny lists.
+- [x] Create dynamic allow & deny lists.
 - [] Allow exports of allow & deny lists.
+- [] Allow imports of allow & deny lists.
 - [] Maybe enable remote running & certificate allocation.
 - [] Add ability to run as a non-GUI application (use flags?).
-- [] Allow dragging?
+- [x] Allow dragging?
 - [] Window Resizing?
 - [] Logging Filtering?
-- [] State Saving (the rest of it). [^1]
+- [x] State Saving (the rest of it). [^1]
 
 ### Known Issues:
 
