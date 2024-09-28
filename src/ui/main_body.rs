@@ -86,7 +86,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
                             ui.add(egui::Label::new("Proxy Events: "));
                             ui.add(egui::Label::new(
-                                RichText::new(format!("{}", proxy.clone().get_requests().len()))
+                                RichText::new(format!("{}", proxy.get_requests().len()))
                                     .color(Color32::LIGHT_GREEN),
                             ));
                         });
@@ -237,30 +237,18 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     if proxy.logs {
         ui.vertical(|ui| {
-            // let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
-
-            let mut allow_requests_by_default = proxy.get_traffic_filter().get_enabled();
-            let mut filter_enabled = proxy.get_traffic_filter().get_enabled();
-
-            let is_blocking = match proxy.get_traffic_filter().get_filter() {
-                TrafficFilterType::Allow => false,
-                TrafficFilterType::Deny => true,
+            let mut is_blocking = proxy.get_traffic_filter().get_enabled();
+            let mut allow_requests_by_default = match proxy.get_traffic_filter().get_filter() {
+                TrafficFilterType::Allow => true,
+                TrafficFilterType::Deny => false,
             };
 
-            // let mut blocking = is_blocking;
 
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut filter_enabled, "Enable Proxy Filtering").clicked() {
-                    println!("CHECKBOX: {:?}", proxy.get_traffic_filter().filter_enabled);
+                if ui.checkbox(&mut is_blocking, "Enable Proxy Filtering").clicked() {
+                    println!("CHECKBOX: {:?}", proxy.get_traffic_filter());
                     proxy.enable_exclusion();
                 }
-
-                // ui.horizontal(|ui| {
-                //     ui.label("Enable Proxy Filtering");
-                //     if custom_widgets::toggle_ui(ui, &mut blocking).changed() {
-                //         proxy.enable_exclusion();
-                //     }
-                // });
 
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     ui.menu_button("Options", |ui| {

@@ -14,8 +14,8 @@ pub struct TrafficFilterList {
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct TrafficFilter {
     pub filter_enabled: bool,
-    filter_type: TrafficFilterType,
-    filter_list: TrafficFilterList,
+    pub filter_type: TrafficFilterType,
+    pub filter_list: TrafficFilterList,
 }
 
 impl TrafficFilter {
