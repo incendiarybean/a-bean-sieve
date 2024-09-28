@@ -4,11 +4,9 @@ use std::sync::Arc;
 
 use eframe::egui;
 
-mod csv_handler;
-mod custom_widgets;
-mod default_window;
-mod main_body;
-mod proxy;
+pub mod service;
+pub mod ui;
+pub mod utils;
 
 fn main() -> Result<(), eframe::Error> {
     let icon: &[u8] = include_bytes!("assets/icon.png");
@@ -34,7 +32,7 @@ fn main() -> Result<(), eframe::Error> {
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(default_window::MainWindow::new(cc)))
+            Ok(Box::new(ui::default_window::MainWindow::new(cc)))
         }),
     )
 }

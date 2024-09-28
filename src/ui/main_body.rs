@@ -7,11 +7,13 @@ use eframe::{
     epaint::{Color32, Vec2},
 };
 
-use crate::{
-    csv_handler::{self},
-    custom_widgets,
+use crate::service::{
     proxy::{Proxy, ProxyEvent, ProxyExclusionList, ProxyExclusionRow, ProxyRequestLog},
+    traffic_filter::TrafficFilterType,
 };
+use crate::utils::csv_handler::{read_from_csv, write_csv_from_vec};
+
+use super::custom_widgets::toggle_ui;
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
@@ -84,12 +86,12 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
                             ui.add(egui::Label::new("Proxy Events: "));
                             ui.add(egui::Label::new(
-                                RichText::new(format!("{}", proxy.get_requests().len()))
+                                RichText::new(format!("{}", proxy.clone().get_requests().len()))
                                     .color(Color32::LIGHT_GREEN),
                             ));
                         });
 
-                        if proxy.get_blocking_status().0 {
+                        if proxy.get_traffic_filter().get_enabled() {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
                                 ui.add(egui::Label::new("Events Blocked: "));
                                 ui.add(egui::Label::new(
@@ -106,9 +108,7 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                     .color(Color32::LIGHT_GREEN),
                                 ));
                             });
-                        }
 
-                        if proxy.get_blocking_status().0 {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
                                 ui.add(egui::Label::new("Session Duration: "));
                                 ui.add(egui::Label::new(
@@ -237,15 +237,30 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     if proxy.logs {
         ui.vertical(|ui| {
-            let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
+            // let (is_blocking, allow_requests_by_default) = proxy.get_blocking_status();
 
-            let mut blocking = is_blocking;
-            let mut allow_requests_by_default = allow_requests_by_default;
+            let mut allow_requests_by_default = proxy.get_traffic_filter().get_enabled();
+            let mut filter_enabled = proxy.get_traffic_filter().get_enabled();
+
+            let is_blocking = match proxy.get_traffic_filter().get_filter() {
+                TrafficFilterType::Allow => false,
+                TrafficFilterType::Deny => true,
+            };
+
+            // let mut blocking = is_blocking;
 
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut blocking, "Enable Proxy Filtering").clicked() {
+                if ui.checkbox(&mut filter_enabled, "Enable Proxy Filtering").clicked() {
+                    println!("CHECKBOX: {:?}", proxy.get_traffic_filter().filter_enabled);
                     proxy.enable_exclusion();
                 }
+
+                // ui.horizontal(|ui| {
+                //     ui.label("Enable Proxy Filtering");
+                //     if custom_widgets::toggle_ui(ui, &mut blocking).changed() {
+                //         proxy.enable_exclusion();
+                //     }
+                // });
 
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     ui.menu_button("Options", |ui| {
@@ -253,7 +268,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 println!("{}", path.display().to_string());
 
-                                if let Err(error) = csv_handler::read_from_csv::<String, PathBuf>(
+                                if let Err(error) = read_from_csv::<String, PathBuf>(
                                     path,
                                 ) {
                                     println!("{}", error);
@@ -262,17 +277,17 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         }
 
                         if ui.button("Export Exclusion List").clicked() {
-                            let exclusion_list = proxy.get_current_list();
+                            let exclusion_list = proxy.get_traffic_filter().get_filter_list();
                             let mut exclusion_list_export = Vec::<ProxyExclusionList>::new();
                             for request in exclusion_list {
                                 exclusion_list_export.push(ProxyExclusionList { request });
                             }
 
                             if let Some(path) = rfd::FileDialog::new().save_file() {
-                                if let Err(error) = csv_handler::write_csv_from_vec::<String, PathBuf>(
+                                if let Err(error) = write_csv_from_vec::<String, PathBuf>(
                                     path.clone(),
                                     vec!["REQUEST"],
-                                    proxy.get_current_list(),
+                                    proxy.get_traffic_filter().get_filter_list(),
                                 ) {
                                     println!("{} -> {}", "There was an error".red(), error);
                                 } else {
@@ -296,7 +311,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 }
 
                                 if let Err(error) =
-                                    csv_handler::write_csv_from_vec::<ProxyRequestLog, PathBuf>(
+                                    write_csv_from_vec::<ProxyRequestLog, PathBuf>(
                                         path.clone(),
                                         vec![
                                             "METHOD",
@@ -330,7 +345,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             if is_blocking {
                 ui.horizontal(|ui| {
                     ui.label("Deny Incoming");
-                    if custom_widgets::toggle_ui(ui, &mut allow_requests_by_default).changed() {
+                    if toggle_ui(ui, &mut allow_requests_by_default).changed() {
                         proxy.switch_exclusion();
                     }
                     ui.label("Allow Incoming");
@@ -339,7 +354,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                 egui::CollapsingHeader::new("Request Exclusion List").default_open(false).show_unindented(ui, |ui| {
                         ui.group(|ui| {
                             ui.push_id("request_exclusion_list_scrollarea", |ui| {
-                                let exclusion_list = proxy.get_current_list();
+                                let exclusion_list = proxy.get_traffic_filter().get_filter_list();
                                 let num_rows = exclusion_list.len();
 
                                 egui::ScrollArea::new([true, true])
@@ -393,7 +408,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                                     "Deleting item".green(),
                                                                     uri.red()
                                                                 );
-                                                                proxy.dragging_value =
+                                                                proxy.selected_value =
                                                                     uri.to_string();
                                                                 proxy.add_exclusion();
                                                             };
@@ -422,7 +437,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
             let request_logs_dropdown = egui::CollapsingHeader::new("Request Logs").default_open(false).show_unindented(ui, |ui| {
                     ui.group(|ui| {
                         ui.push_id("request_logs_scrollarea", |ui| {
-                            let request_list = proxy.get_requests();
+                            let request_list = proxy.clone().get_requests();
                             let num_rows = request_list.len();
 
                             egui::ScrollArea::new([true, true])
@@ -473,7 +488,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                                                         if ui.button(exclusion_values.0).clicked()
                                                         {
-                                                            proxy.dragging_value =
+                                                            proxy.selected_value =
                                                                     request.to_string();
                                                             proxy.add_exclusion();
                                                         }

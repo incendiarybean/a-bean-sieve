@@ -3,7 +3,7 @@ use eframe::{
     epaint::{Color32, Stroke},
 };
 
-use crate::{main_body, proxy::Proxy};
+use crate::{service::proxy::Proxy, ui::main_body};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -28,16 +28,21 @@ impl MainWindow {
             let previous_values: MainWindow =
                 eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 
-            let allow_blocking = match previous_values.proxy.allow_blocking.lock() {
-                Ok(allow_blocking) => *allow_blocking,
-                Err(poisoned) => *poisoned.into_inner(),
-            };
+            // let allow_blocking = match previous_values.proxy.allow_blocking.lock() {
+            //     Ok(allow_blocking) => *allow_blocking,
+            //     Err(poisoned) => *poisoned.into_inner(),
+            // };
 
-            let allow_requests_by_default =
-                match previous_values.proxy.allow_requests_by_default.lock() {
-                    Ok(allow_requests_by_default) => *allow_requests_by_default,
-                    Err(poisoned) => *poisoned.into_inner(),
-                };
+            // let allow_requests_by_default =
+            //     match previous_values.proxy.allow_requests_by_default.lock() {
+            //         Ok(allow_requests_by_default) => *allow_requests_by_default,
+            //         Err(poisoned) => *poisoned.into_inner(),
+            //     };
+
+            // let allow_blocking = match previous_values.proxy.traffic_filter.lock() {
+            //     Ok(allow_blocking) => *allow_blocking,
+            //     Err(poisoned) => *poisoned.into_inner(),
+            // };
 
             // Create new proxy to generate mutables
             return Self {
@@ -45,10 +50,10 @@ impl MainWindow {
                     previous_values.proxy.port,
                     previous_values.proxy.port_error,
                     previous_values.proxy.logs,
-                    previous_values.proxy.allow_list,
-                    previous_values.proxy.block_list,
-                    allow_blocking,
-                    allow_requests_by_default,
+                    previous_values.proxy.traffic_filter, // previous_values.proxy.allow_list,
+                                                          // previous_values.proxy.block_list,
+                                                          // allow_blocking,
+                                                          // allow_requests_by_default,
                 ),
             };
         }

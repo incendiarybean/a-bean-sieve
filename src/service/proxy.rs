@@ -15,6 +15,8 @@ use std::{
 };
 use tokio::net::{TcpListener, TcpStream};
 
+use super::traffic_filter::TrafficFilter;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProxyEvent {
     Running,
@@ -75,18 +77,26 @@ pub struct ProxyExclusionList {
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
 pub struct Proxy {
+    // Startup related items
     pub port: String,
     pub port_error: String,
-    pub logs: bool,
-    pub allow_list: Vec<String>,
-    pub block_list: Vec<String>,
     pub start_enabled: bool,
-    pub allow_blocking: Arc<Mutex<bool>>,
-    pub allow_requests_by_default: Arc<Mutex<bool>>,
-    pub current_list: Arc<Mutex<Vec<String>>>,
+
+    // Logs
+    pub logs: bool,
+
+    pub traffic_filter: Arc<Mutex<TrafficFilter>>,
+
+    // pub traffic_filtering: Arc<Mutex<bool>>,
+    // pub traffic_filtering_type: Arc<Mutex<TrafficFilterType>>
+    // pub allow_list: Vec<String>,
+    // pub block_list: Vec<String>,
+    // pub allow_blocking: Arc<Mutex<bool>>,
+    // pub allow_requests_by_default: Arc<Mutex<bool>>,
+    // pub current_list: Arc<Mutex<Vec<String>>>,
 
     // Different value selectors for exclusion management
-    pub dragging_value: String,
+    // pub dragging_value: String,
     pub selected_value: String,
     pub selected_exclusion_row: ProxyExclusionRow,
 
@@ -112,17 +122,20 @@ impl Default for Proxy {
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
         let requests_clone = Arc::clone(&requests);
 
-        let allow_blocking = Arc::new(Mutex::new(false));
-        let allow_blocking_clone = Arc::clone(&allow_blocking);
+        // let allow_blocking = Arc::new(Mutex::new(false));
+        // let allow_blocking_clone = Arc::clone(&allow_blocking);
 
-        let allow_requests_by_default = Arc::new(Mutex::new(false));
-        let allow_requests_by_default_clone = Arc::clone(&allow_requests_by_default);
+        // let allow_requests_by_default = Arc::new(Mutex::new(false));
+        // let allow_requests_by_default_clone = Arc::clone(&allow_requests_by_default);
 
-        let current_list = Arc::new(Mutex::new(Vec::<String>::new()));
-        let current_list_clone = Arc::clone(&current_list);
+        // let current_list = Arc::new(Mutex::new(Vec::<String>::new()));
+        // let current_list_clone = Arc::clone(&current_list);
 
         let run_time = Arc::new(Mutex::new(None));
         let run_time_clone = Arc::clone(&run_time);
+
+        let traffic_filter = Arc::new(Mutex::new(TrafficFilter::default()));
+        let traffic_filter_clone = Arc::clone(&traffic_filter);
 
         thread::spawn(move || -> ! {
             loop {
@@ -159,21 +172,30 @@ impl Default for Proxy {
                                 blocked,
                             });
                         }
-                        ProxyEvent::Blocking(default_list) => {
-                            let mut blocking = allow_blocking_clone.lock().unwrap();
-                            *blocking = !*blocking;
+                        ProxyEvent::Blocking(list) => {
+                            // let mut blocking = allow_blocking_clone.lock().unwrap();
+                            // *blocking = !*blocking;
 
-                            let mut current_list = current_list_clone.lock().unwrap();
-                            *current_list = default_list;
+                            // let mut current_list = current_list_clone.lock().unwrap();
+                            // *current_list = default_list;
+
+                            let mut traffic_filter = traffic_filter_clone.lock().unwrap();
+                            let current_status = traffic_filter.get_enabled();
+                            traffic_filter.set_enabled(!current_status);
+                            traffic_filter.set_filter_list(list);
+
+                            *traffic_filter = traffic_filter.to_owned();
+
+                            println!("{:?}", traffic_filter);
                         }
                         ProxyEvent::SwitchList(exclusion_list) => {
                             // When updating the list, toggle the traffic control and update the list
-                            let mut allow_requests_by_default =
-                                allow_requests_by_default_clone.lock().unwrap();
-                            *allow_requests_by_default = !*allow_requests_by_default;
+                            // let mut allow_requests_by_default =
+                            //     allow_requests_by_default_clone.lock().unwrap();
+                            // *allow_requests_by_default = !*allow_requests_by_default;
 
-                            let mut current_list = current_list_clone.lock().unwrap();
-                            *current_list = exclusion_list;
+                            // let mut current_list = current_list_clone.lock().unwrap();
+                            // *current_list = exclusion_list;
                         }
                         ProxyEvent::Error(message) => {
                             println!("{}", message.red());
@@ -209,18 +231,19 @@ impl Default for Proxy {
             port_error: String::default(),
             start_enabled: true,
             event: event_sender.clone(),
-            dragging_value: String::new(),
+            // dragging_value: String::new(),
             selected_value: String::new(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
             logs: false,
             requests,
-            allow_blocking,
-            allow_requests_by_default,
-            allow_list: Vec::<String>::new(),
-            block_list: Vec::<String>::new(),
-            current_list,
+            // allow_blocking,
+            // allow_requests_by_default,
+            // allow_list: Vec::<String>::new(),
+            // block_list: Vec::<String>::new(),
+            // current_list,
             run_time,
+            traffic_filter: traffic_filter,
         }
     }
 }
@@ -252,22 +275,24 @@ impl Proxy {
 
                             let internal_event_sender = event_sender.clone();
 
-                            let is_blocking = match self.allow_blocking.lock() {
-                                Ok(is_blocking) => *is_blocking,
-                                Err(poisoned) => *poisoned.into_inner(),
-                            };
+                            let traffic_filter = self.traffic_filter.lock().unwrap().clone();
 
-                            let allow_by_default = match self.allow_requests_by_default.lock() {
-                                Ok(allow_by_default) => *allow_by_default,
-                                Err(poisoned) => *poisoned.into_inner(),
-                            };
+                            // let is_blocking = match self.allow_blocking.lock() {
+                            //     Ok(is_blocking) => *is_blocking,
+                            //     Err(poisoned) => *poisoned.into_inner(),
+                            // };
 
-                            let configured_list = match self.current_list.lock() {
-                                Ok(current_list) => current_list,
-                                Err(poisoned) => poisoned.into_inner(),
-                            };
+                            // let allow_by_default = match self.allow_requests_by_default.lock() {
+                            //     Ok(allow_by_default) => *allow_by_default,
+                            //     Err(poisoned) => *poisoned.into_inner(),
+                            // };
 
-                            let configured_list = configured_list.clone();
+                            // let configured_list = match self.current_list.lock() {
+                            //     Ok(current_list) => current_list,
+                            //     Err(poisoned) => poisoned.into_inner(),
+                            // };
+
+                            // let configured_list = traffic_filter.get_filter_list().clone();
 
                             let connection = http1::Builder::new()
                             .preserve_header_case(true)
@@ -276,9 +301,7 @@ impl Proxy {
                                 Self::request(
                                     request,
                                     internal_event_sender.clone(),
-                                    is_blocking,
-                                    allow_by_default,
-                                    configured_list.clone()
+                                    traffic_filter.clone()
                                 )))
                             .with_upgrades();
 
@@ -315,24 +338,25 @@ impl Proxy {
         previous_port: String,
         previous_port_error: String,
         show_logs: bool,
-        previous_allow_list: Vec<String>,
-        previous_block_list: Vec<String>,
-        previously_blocking: bool,
-        previously_allowing_requests_by_default: bool,
+        previous_traffic_filter: Arc<Mutex<TrafficFilter>>, // previous_allow_list: Vec<String>,
+                                                            // previous_block_list: Vec<String>,
+                                                            // previously_blocking: bool,
+                                                            // previously_allowing_requests_by_default: bool,
     ) -> Self {
         self.port = previous_port;
         self.port_error = previous_port_error;
         self.logs = show_logs;
-        self.allow_list = previous_allow_list;
-        self.block_list = previous_block_list;
+        self.traffic_filter = previous_traffic_filter;
+        // self.allow_list = previous_allow_list;
+        // self.block_list = previous_block_list;
 
-        if previously_blocking {
-            self.enable_exclusion();
-        }
+        // if previously_blocking {
+        //     self.enable_exclusion();
+        // }
 
-        if previously_allowing_requests_by_default {
-            self.switch_exclusion();
-        }
+        // if previously_allowing_requests_by_default {
+        //     self.switch_exclusion();
+        // }
 
         self
     }
@@ -380,32 +404,34 @@ impl Proxy {
     async fn request(
         request: Request<hyper::body::Incoming>,
         event: std::sync::mpsc::Sender<ProxyEvent>,
-        is_blocking: bool,
-        allow_by_default: bool,
-        blocking_list: Vec<String>,
+        _traffic_filter: TrafficFilter,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-        let is_excluded_address =
-            Self::is_excluded_address(blocking_list, request.uri().to_string());
+        // let traffic_filter_enabled = traffic_filter.get_enabled();
+        // let traffic_filter_type = traffic_filter.get_filter();
+        // let exclusion_list = traffic_filter.get_filter_list();
+
+        // let request_uri = request.uri().to_string();
+        // let is_excluded_address = exclusion_list
+        //     .iter()
+        //     .any(|item| request_uri.contains(item) || item.contains(&request_uri));
 
         let logger = (
             request.method().to_string(),
             request.uri().to_string(),
-            is_blocking
-                && ((is_excluded_address && allow_by_default)
-                    || (!is_excluded_address & !allow_by_default)),
+            false,
         );
 
         event.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
-        if is_blocking {
-            if (is_excluded_address && allow_by_default)
-                || (!is_excluded_address & !allow_by_default)
-            {
-                let mut resp = Response::new(Self::full("Oopsie Whoopsie!"));
-                *resp.status_mut() = http::StatusCode::FORBIDDEN;
-                return Ok(resp);
-            }
-        }
+        // if is_blocking {
+        //     if (is_excluded_address && allow_by_default)
+        //         || (!is_excluded_address & !allow_by_default)
+        //     {
+        //         let mut resp = Response::new(Self::full("Oopsie Whoopsie!"));
+        //         *resp.status_mut() = http::StatusCode::FORBIDDEN;
+        //         return Ok(resp);
+        //     }
+        // }
 
         if Method::CONNECT == request.method() {
             if let Some(addr) = Self::host_addr(request.uri()) {
@@ -499,32 +525,41 @@ impl Proxy {
     }
 
     /// Returns the Proxy's current exclusion list
-    pub fn get_current_list(&mut self) -> Vec<String> {
-        let current_list = match self.current_list.lock() {
-            Ok(current_list) => current_list,
+    // pub fn get_current_list(&mut self) -> Vec<String> {
+    //     let current_list = match self.current_list.lock() {
+    //         Ok(current_list) => current_list,
+    //         Err(poisoned) => poisoned.into_inner(),
+    //     };
+
+    //     current_list.clone()
+    // }
+
+    /// Returns the Proxy's current blocking status
+    // pub fn get_blocking_status(&mut self) -> (bool, bool) {
+    //     let blocking_status = match self.allow_blocking.lock() {
+    //         Ok(blocking_status) => *blocking_status,
+    //         Err(poisoned) => *poisoned.into_inner(),
+    //     };
+
+    //     let allowing_all_traffic = match self.allow_requests_by_default.lock() {
+    //         Ok(allowing_all_traffic) => *allowing_all_traffic,
+    //         Err(poisoned) => *poisoned.into_inner(),
+    //     };
+
+    //     (blocking_status, allowing_all_traffic)
+    // }
+
+    pub fn get_traffic_filter(&self) -> TrafficFilter {
+        let traffic_filter = match self.traffic_filter.lock() {
+            Ok(traffic_filter) => traffic_filter,
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        current_list.clone()
-    }
-
-    /// Returns the Proxy's current blocking status
-    pub fn get_blocking_status(&mut self) -> (bool, bool) {
-        let blocking_status = match self.allow_blocking.lock() {
-            Ok(blocking_status) => *blocking_status,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
-
-        let allowing_all_traffic = match self.allow_requests_by_default.lock() {
-            Ok(allowing_all_traffic) => *allowing_all_traffic,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
-
-        (blocking_status, allowing_all_traffic)
+        traffic_filter.to_owned()
     }
 
     /// Returns the Proxy's recent requests
-    pub fn get_requests(&mut self) -> Vec<ProxyRequestLog> {
+    pub fn get_requests(&self) -> Vec<ProxyRequestLog> {
         let requests_list = match self.requests.lock() {
             Ok(requests_list) => requests_list,
             Err(poisoned) => poisoned.into_inner(),
@@ -534,101 +569,82 @@ impl Proxy {
     }
 
     /// Sets whether the Proxy is using an exclusion list
-    pub fn enable_exclusion(&mut self) {
-        let (_blocking_status, allowing_all_traffic) = self.get_blocking_status();
-
-        self.event
-            .send(ProxyEvent::Blocking(if allowing_all_traffic {
-                self.block_list.clone()
-            } else {
-                self.allow_list.clone()
-            }))
-            .unwrap();
+    pub fn enable_exclusion(&self) {
+        let traffic_filter = self.get_traffic_filter();
+        let filter_list = traffic_filter.get_filter_list();
+        self.event.send(ProxyEvent::Blocking(filter_list)).unwrap();
     }
 
     /// Sets which exclusion list the Proxy is using
     pub fn switch_exclusion(&mut self) {
-        let allowing_all_traffic = match self.allow_requests_by_default.lock() {
-            Ok(allowing_all_traffic) => allowing_all_traffic,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        self.event
-            .send(ProxyEvent::SwitchList(if *allowing_all_traffic {
-                self.allow_list.clone()
-            } else {
-                self.block_list.clone()
-            }))
-            .unwrap();
+        // let allowing_all_traffic = match self.allow_requests_by_default.lock() {
+        //     Ok(allowing_all_traffic) => allowing_all_traffic,
+        //     Err(poisoned) => poisoned.into_inner(),
+        // };
+        // self.event
+        //     .send(ProxyEvent::SwitchList(if *allowing_all_traffic {
+        //         self.allow_list.clone()
+        //     } else {
+        //         self.block_list.clone()
+        //     }))
+        //     .unwrap();
     }
 
     /// Update the Proxy's exclusion list
     pub fn add_exclusion(&mut self) {
-        let mut list = self.get_current_list();
-        let is_already_excluded =
-            Self::is_excluded_address(list.clone(), self.dragging_value.clone());
+        // let mut list = self.get_current_list();
+        // let selected_value = self.dragging_value.clone();
 
-        if !is_already_excluded {
-            list.push(self.dragging_value.clone());
-        } else {
-            list.retain(|x| x.clone() != self.dragging_value.clone());
-        }
+        // let is_already_excluded = list
+        //     .iter()
+        //     .any(|item| selected_value.contains(item) || item.contains(&selected_value));
 
-        let (_is_blocking, allowing_all_traffic) = self.get_blocking_status();
+        // if !is_already_excluded {
+        //     list.push(self.dragging_value.clone());
+        // } else {
+        //     list.retain(|x| x.clone() != self.dragging_value.clone());
+        // }
 
-        if allowing_all_traffic {
-            self.block_list = list.clone();
-        } else {
-            self.allow_list = list.clone();
-        }
+        // let (_is_blocking, allowing_all_traffic) = self.get_blocking_status();
 
-        let mut current_list_mut = self.current_list.lock().unwrap();
-        *current_list_mut = list;
+        // if allowing_all_traffic {
+        //     self.block_list = list.clone();
+        // } else {
+        //     self.allow_list = list.clone();
+        // }
+
+        // let mut current_list_mut = self.current_list.lock().unwrap();
+        // *current_list_mut = list;
     }
 
     /// Update a single value in the Proxy's exclusion list
     pub fn update_exclusion_list_value(&mut self, uri: String) {
-        // TODO: This could be combined with the add_exclusion (rename to update_exclusion)
-        let mut list = self.get_current_list();
+        // // TODO: This could be combined with the add_exclusion (rename to update_exclusion)
+        // let mut list = self.get_current_list();
 
-        // Find index as cannot index by String
-        let uri_index = list.iter().position(|item| item == &uri).unwrap();
+        // // Find index as cannot index by String
+        // let uri_index = list.iter().position(|item| item == &uri).unwrap();
 
-        // Overwrite value in current_list
-        list[uri_index] = self.selected_exclusion_row.row_value.clone();
+        // // Overwrite value in current_list
+        // list[uri_index] = self.selected_exclusion_row.row_value.clone();
 
-        // Update allow/deny lists
-        let allowing_all_traffic = match self.allow_requests_by_default.lock() {
-            Ok(allowing_all_traffic) => *allowing_all_traffic,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
+        // // Update allow/deny lists
+        // let allowing_all_traffic = match self.allow_requests_by_default.lock() {
+        //     Ok(allowing_all_traffic) => *allowing_all_traffic,
+        //     Err(poisoned) => *poisoned.into_inner(),
+        // };
 
-        if allowing_all_traffic {
-            self.block_list = list.clone();
-        } else {
-            self.allow_list = list.clone();
-        }
+        // if allowing_all_traffic {
+        //     self.block_list = list.clone();
+        // } else {
+        //     self.allow_list = list.clone();
+        // }
 
-        // Update current list values
-        let mut current_list_mut = self.current_list.lock().unwrap();
-        *current_list_mut = list;
+        // // Update current list values
+        // let mut current_list_mut = self.current_list.lock().unwrap();
+        // *current_list_mut = list;
 
-        // Reset edit values
-        self.selected_exclusion_row = ProxyExclusionRow::default();
-    }
-
-    /// Returns whether address is excluded or not
-    ///
-    /// # Arguments
-    /// * `exclusion_list` - a Vec of String to compare the Uri to
-    /// * `uri` - A String to check if it's in the list
-    pub fn is_excluded_address(exclusion_list: Vec<String>, uri: String) -> bool {
-        if exclusion_list
-            .iter()
-            .any(|item| uri.contains(item) || item.contains(&uri))
-        {
-            true
-        } else {
-            false
-        }
+        // // Reset edit values
+        // self.selected_exclusion_row = ProxyExclusionRow::default();
     }
 }
