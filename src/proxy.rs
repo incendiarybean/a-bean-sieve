@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::net::{TcpListener, TcpStream};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProxyEvent {
     Running,
     Stopped,
@@ -27,9 +27,18 @@ pub enum ProxyEvent {
     SwitchList(Vec<String>),
 }
 
-impl std::fmt::Display for ProxyEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+impl std::string::ToString for ProxyEvent {
+    fn to_string(&self) -> String {
+        let current_proxy_status = match self {
+            ProxyEvent::Running => String::from("RUNNING"),
+            ProxyEvent::Stopped => String::from("STOPPED"),
+            ProxyEvent::Error(_) => String::from("ERROR"),
+            ProxyEvent::Terminating => String::from("TERMINATING"),
+            ProxyEvent::Terminated => String::from("TERMINATED"),
+            _ => String::from("UNKNOWN"),
+        };
+
+        current_proxy_status
     }
 }
 
@@ -51,7 +60,7 @@ impl Default for ProxyExclusionRow {
     }
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct ProxyRequestLog {
     pub method: String,
     pub request: String,
@@ -89,7 +98,7 @@ pub struct Proxy {
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
     #[serde(skip)]
-    pub requests: Arc<Mutex<Vec<(String, String, bool)>>>,
+    pub requests: Arc<Mutex<Vec<ProxyRequestLog>>>,
 }
 
 impl Default for Proxy {
@@ -100,7 +109,7 @@ impl Default for Proxy {
         let status = Arc::new(Mutex::new(ProxyEvent::Stopped));
         let status_clone = Arc::clone(&status);
 
-        let requests = Arc::new(Mutex::new(Vec::<(String, String, bool)>::new()));
+        let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
         let requests_clone = Arc::clone(&requests);
 
         let allow_blocking = Arc::new(Mutex::new(false));
@@ -130,7 +139,7 @@ impl Default for Proxy {
                             let mut run_time = run_time_clone.lock().unwrap();
                             *run_time = None;
                         }
-                        ProxyEvent::RequestEvent((method, uri, blocked)) => {
+                        ProxyEvent::RequestEvent((method, request, blocked)) => {
                             // We need to have a --no-gui option to enable this
                             // println!(
                             //     "{} {} {}",
@@ -143,8 +152,12 @@ impl Default for Proxy {
                             //     }
                             // );
 
-                            let mut status = requests_clone.lock().unwrap();
-                            status.push((method, uri, blocked));
+                            let mut requests_list = requests_clone.lock().unwrap();
+                            requests_list.push(ProxyRequestLog {
+                                method,
+                                request,
+                                blocked,
+                            });
                         }
                         ProxyEvent::Blocking(default_list) => {
                             let mut blocking = allow_blocking_clone.lock().unwrap();
@@ -163,7 +176,7 @@ impl Default for Proxy {
                             *current_list = exclusion_list;
                         }
                         ProxyEvent::Error(message) => {
-                            println!("{:?}", message.red());
+                            println!("{}", message.red());
 
                             let mut status = status_clone.lock().unwrap();
                             *status = ProxyEvent::Error(message);
@@ -476,22 +489,13 @@ impl Proxy {
     }
 
     /// Returns the Proxy's current status
-    pub fn get_status(&mut self) -> String {
+    pub fn get_status(&mut self) -> ProxyEvent {
         let proxy_state = match self.status.lock() {
             Ok(proxy_event) => proxy_event,
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        let current_proxy_status = match *proxy_state {
-            ProxyEvent::Running => "RUNNING",
-            ProxyEvent::Stopped => "STOPPED",
-            ProxyEvent::Error(_) => "ERROR",
-            ProxyEvent::Terminating => "TERMINATING",
-            ProxyEvent::Terminated => "TERMINATED",
-            _ => "NOT COVERED",
-        };
-
-        current_proxy_status.to_string()
+        proxy_state.clone()
     }
 
     /// Returns the Proxy's current exclusion list
@@ -520,7 +524,7 @@ impl Proxy {
     }
 
     /// Returns the Proxy's recent requests
-    pub fn get_requests(&mut self) -> Vec<(String, String, bool)> {
+    pub fn get_requests(&mut self) -> Vec<ProxyRequestLog> {
         let requests_list = match self.requests.lock() {
             Ok(requests_list) => requests_list,
             Err(poisoned) => poisoned.into_inner(),

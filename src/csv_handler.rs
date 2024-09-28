@@ -1,40 +1,46 @@
-use std::fs;
+use std::fs::File;
 
-use image::EncodableLayout;
 use serde::{de::DeserializeOwned, Serialize};
 
-pub fn read_from_csv<CSVRecord>(file_path: String) -> Result<Vec<CSVRecord>, csv::Error>
+pub fn read_from_csv<CSVRecord, P: AsRef<std::path::Path>>(
+    file_path: P,
+) -> Result<Vec<CSVRecord>, csv::Error>
 where
     CSVRecord: DeserializeOwned,
 {
-    let file = fs::read(&file_path)?;
-    let mut rows: Vec<CSVRecord> = Vec::new();
-    let mut raw_csv = csv::Reader::from_reader(file.as_bytes());
+    let file = File::open(file_path)?;
+    let reader = std::io::BufReader::new(file);
 
-    for result in raw_csv.deserialize() {
+    let mut records: Vec<CSVRecord> = Vec::new();
+    let mut csv = csv::Reader::from_reader(reader);
+
+    for result in csv.deserialize() {
         let row: CSVRecord = result?;
-        rows.push(row);
+        records.push(row);
     }
 
-    Ok(rows)
+    Ok(records)
 }
 
-pub fn write_csv_from_vec<CSVRecord>(
-    file_path: String,
-    headers: Vec<String>,
+pub fn write_csv_from_vec<CSVRecord, P: AsRef<std::path::Path>>(
+    file_path: P,
+    headers: Vec<&str>,
     records: Vec<CSVRecord>,
 ) -> Result<(), csv::Error>
 where
     CSVRecord: Serialize,
+    P: Clone,
 {
-    fs::write(&file_path, "")?;
-    let mut wtr = csv::Writer::from_path(&file_path)?;
-    wtr.serialize(headers)?;
+    File::create(file_path.clone())?;
+    let mut writer = csv::Writer::from_path(file_path)?;
 
-    for item in records {
-        wtr.serialize(item)?;
+    writer.serialize(headers)?;
+
+    for record in records {
+        writer.serialize(record)?;
     }
 
-    wtr.flush()?;
+    writer.flush()?;
+
     Ok(())
 }
