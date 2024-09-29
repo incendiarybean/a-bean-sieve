@@ -335,7 +335,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                 egui::CollapsingHeader::new(format!(
                     "{} List",
-                    proxy.get_traffic_filter().get_filter_type().to_string()
+                    proxy.get_traffic_filter().get_opposing_filter_type().to_string()
                 ))
                 .default_open(false)
                 .show_unindented(ui, |ui| {

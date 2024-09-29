@@ -1,5 +1,4 @@
 use colored::Colorize;
-use eframe::egui::TextBuffer;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{
     body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
@@ -16,7 +15,7 @@ use std::{
 };
 use tokio::net::{TcpListener, TcpStream};
 
-use super::traffic_filter::{self, TrafficFilter, TrafficFilterType};
+use super::traffic_filter::{TrafficFilter, TrafficFilterType};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProxyEvent {
@@ -169,7 +168,7 @@ impl Proxy {
             status.clone(),
             requests.clone(),
             run_time.clone(),
-            Arc::clone(&traffic_filter),
+            traffic_filter.clone(),
         );
 
         Self {
@@ -202,9 +201,9 @@ impl Proxy {
         run_time: Arc<Mutex<Option<std::time::Instant>>>,
         traffic_filter: Arc<Mutex<TrafficFilter>>,
     ) {
-        let requests: Arc<Mutex<Vec<ProxyRequestLog>>> = Arc::clone(&requests);
-        let status = Arc::clone(&status);
-        let run_time = Arc::clone(&run_time);
+        // let requests: Arc<Mutex<Vec<ProxyRequestLog>>> = Arc::clone(&requests);
+        // let status = Arc::clone(&status);
+        // let run_time = Arc::clone(&run_time);
         // let traffic_filter = Arc::clone(&traffic_filter);
 
         thread::spawn(move || {
@@ -261,11 +260,8 @@ impl Proxy {
                         // Traffic Filter events
                         ProxyEvent::ToggleFilterActive => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
-                            // let enabled = traffic_filter.get_enabled();
-                            // traffic_filter.set_enabled(!enabled);
-
-                            println!("next: {:?}", !traffic_filter.filter_enabled);
-                            traffic_filter.filter_enabled = !traffic_filter.filter_enabled;
+                            let enabled = traffic_filter.get_enabled();
+                            traffic_filter.set_enabled(!enabled);
                         }
                         ProxyEvent::SwitchFilterList => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
@@ -318,6 +314,15 @@ impl Proxy {
         let mut signal = std::pin::pin!(Self::handle_termination(event_clone, self.status.clone()));
 
         let listener = TcpListener::bind(addr).await;
+        let internal_event_sender = self.event.clone();
+
+        let proxy_service = service_fn(move |request| {
+            Self::request(
+                request,
+                internal_event_sender.clone(),
+                self.traffic_filter.lock().unwrap().clone(),
+            )
+        });
 
         match listener {
             Ok(listener) => {
@@ -327,17 +332,10 @@ impl Proxy {
                     tokio::select! {
                         Ok((stream, _addr)) = listener.accept() => {
                             let io = TokioIo::new(stream);
-                            let internal_event_sender = self.event.clone();
-                            let traffic_filter = self.traffic_filter.lock().unwrap().clone();
                             let connection = http1::Builder::new()
                                 .preserve_header_case(true)
                                 .title_case_headers(true)
-                                .serve_connection(io, service_fn( move |request|
-                                    Self::request(
-                                        request,
-                                        internal_event_sender.clone(),
-                                        traffic_filter.clone()
-                                    )))
+                                .serve_connection(io, proxy_service.clone())
                                 .with_upgrades();
 
                             tokio::task::spawn(async move {
@@ -407,22 +405,23 @@ impl Proxy {
         traffic_filter: TrafficFilter,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
         let request_uri = request.uri().to_string();
-        let logger = (request.method().to_string(), request_uri.clone(), false);
 
-        println!("current: {:?}", traffic_filter.get_enabled());
-        event.send(ProxyEvent::RequestEvent(logger)).unwrap();
-
-        let is_excluded_address = traffic_filter.in_filter_list(request_uri);
+        let is_excluded_address = traffic_filter.in_filter_list(request_uri.clone());
         let is_traffic_blocking = match traffic_filter.get_filter_type() {
             TrafficFilterType::Allow => false,
             TrafficFilterType::Deny => true,
         };
 
         if traffic_filter.get_enabled() {
-            let is_blocking_but_exluded = is_excluded_address && is_traffic_blocking;
+            let is_blocking_but_exluded = !is_excluded_address && is_traffic_blocking;
             let is_allowing_but_excluded = is_excluded_address && !is_traffic_blocking;
+            let blocked = is_allowing_but_excluded || is_blocking_but_exluded;
 
-            if is_allowing_but_excluded || is_blocking_but_exluded {
+            // Log the event
+            let logger = (request.method().to_string(), request_uri.clone(), blocked);
+            event.send(ProxyEvent::RequestEvent(logger)).unwrap();
+
+            if blocked {
                 let mut resp = Response::new(Self::full("Oopsie Whoopsie!"));
                 *resp.status_mut() = http::StatusCode::FORBIDDEN;
                 return Ok(resp);
@@ -468,7 +467,8 @@ impl Proxy {
                     Ok(response.map(|b| b.boxed()))
                 }
                 None => {
-                    let mut resp = Response::new(Self::full("CONNECT must be to a socket address"));
+                    let mut resp =
+                        Response::new(Self::full("Host address could not be processed."));
                     *resp.status_mut() = http::StatusCode::BAD_REQUEST;
                     return Ok(resp);
                 }

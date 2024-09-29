@@ -54,6 +54,13 @@ impl TrafficFilter {
         self.filter_type = value;
     }
 
+    pub fn get_opposing_filter_type(&self) -> TrafficFilterType {
+        match self.get_filter_type() {
+            TrafficFilterType::Allow => TrafficFilterType::Deny,
+            TrafficFilterType::Deny => TrafficFilterType::Allow,
+        }
+    }
+
     pub fn get_filter_list(&self) -> Vec<String> {
         match self.get_filter_type() {
             TrafficFilterType::Allow => self.filter_list.allow_exclusions.clone(),
@@ -69,13 +76,10 @@ impl TrafficFilter {
     }
 
     pub fn set_filter_list(&mut self, list: Vec<String>) {
-        println!("Setting {:?} list to: {:?}", self.get_filter_type(), list);
         match self.get_filter_type() {
             TrafficFilterType::Allow => self.filter_list.allow_exclusions = list,
             TrafficFilterType::Deny => self.filter_list.deny_exclusions = list,
         }
-
-        println!("New list: {:?}", self.get_filter_list());
     }
 
     pub fn in_filter_list(&self, uri: String) -> bool {
@@ -91,7 +95,5 @@ impl TrafficFilter {
         } else {
             self.get_filter_list_mut().push(value);
         }
-
-        println!("filter-list: {:?}", self.get_filter_list());
     }
 }
