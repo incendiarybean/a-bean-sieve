@@ -27,8 +27,6 @@ pub struct TrafficFilter {
     pub filter_list: TrafficFilterList,
 }
 
-unsafe impl Send for TrafficFilter {}
-
 impl TrafficFilter {
     pub fn default() -> Self {
         Self {
@@ -82,17 +80,21 @@ impl TrafficFilter {
         }
     }
 
-    pub fn in_filter_list(&self, uri: &String) -> bool {
-        self.get_filter_list()
-            .iter()
-            .any(|item| uri.contains(item) || item.contains(*&uri))
-    }
-
     pub fn update_filter_list(&mut self, value: String) {
         if self.in_filter_list(&value) {
             self.get_filter_list_mut().retain(|item| item != &value);
         } else {
             self.get_filter_list_mut().push(value);
         }
+    }
+
+    pub fn update_filter_list_item(&mut self, index: usize, value: String) {
+        self.get_filter_list_mut()[index] = value;
+    }
+
+    pub fn in_filter_list(&self, uri: &String) -> bool {
+        self.get_filter_list()
+            .iter()
+            .any(|item| uri.contains(item) || item.contains(*&uri))
     }
 }

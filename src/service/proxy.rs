@@ -31,7 +31,7 @@ pub enum ProxyEvent {
     SwitchFilterList,
     SetFilterList(Vec<String>),
     UpdateFilterList(String),
-    UpdateFilterListRecord(ProxyExclusionRow),
+    UpdateFilterListRecord(usize, String),
 }
 
 impl std::string::ToString for ProxyEvent {
@@ -260,12 +260,8 @@ impl Proxy {
                         }
                         ProxyEvent::SwitchFilterList => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
-                            let traffic_filter_type = match traffic_filter.get_filter_type() {
-                                TrafficFilterType::Allow => TrafficFilterType::Deny,
-                                TrafficFilterType::Deny => TrafficFilterType::Allow,
-                            };
-
-                            traffic_filter.set_filter_type(traffic_filter_type);
+                            let switched_filter = traffic_filter.get_opposing_filter_type();
+                            traffic_filter.set_filter_type(switched_filter);
                         }
                         ProxyEvent::SetFilterList(exclusion_list) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
@@ -275,11 +271,9 @@ impl Proxy {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
                             traffic_filter.update_filter_list(uri);
                         }
-                        ProxyEvent::UpdateFilterListRecord(exclusion_row) => {
+                        ProxyEvent::UpdateFilterListRecord(index, value) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
-
-                            traffic_filter.get_filter_list_mut()[exclusion_row.index] =
-                                exclusion_row.value;
+                            traffic_filter.update_filter_list_item(index, value);
                         }
                         _ => {
                             let mut status = status.lock().unwrap();
@@ -565,7 +559,8 @@ impl Proxy {
             ProxyExclusionUpdateKind::Edit => {
                 self.event
                     .send(ProxyEvent::UpdateFilterListRecord(
-                        self.selected_exclusion_row.clone(),
+                        self.selected_exclusion_row.index,
+                        self.selected_exclusion_row.value.clone(),
                     ))
                     .unwrap();
 
