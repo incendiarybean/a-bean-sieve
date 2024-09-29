@@ -5,10 +5,19 @@ pub enum TrafficFilterType {
     Deny,
 }
 
+impl ToString for TrafficFilterType {
+    fn to_string(&self) -> String {
+        match self {
+            TrafficFilterType::Allow => String::from("Allow"),
+            TrafficFilterType::Deny => String::from("Deny"),
+        }
+    }
+}
+
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
 pub struct TrafficFilterList {
-    pub allow: Vec<String>,
-    pub deny: Vec<String>,
+    pub allow_exclusions: Vec<String>,
+    pub deny_exclusions: Vec<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
@@ -17,6 +26,8 @@ pub struct TrafficFilter {
     pub filter_type: TrafficFilterType,
     pub filter_list: TrafficFilterList,
 }
+
+unsafe impl Send for TrafficFilter {}
 
 impl TrafficFilter {
     pub fn default() -> Self {
@@ -27,35 +38,60 @@ impl TrafficFilter {
         }
     }
 
-    pub fn set_enabled(&mut self, value: bool) {
-        self.filter_enabled = value
-    }
-
     pub fn get_enabled(&self) -> bool {
         self.filter_enabled
     }
 
-    pub fn get_filter(&self) -> TrafficFilterType {
+    pub fn set_enabled(&mut self, value: bool) {
+        self.filter_enabled = value
+    }
+
+    pub fn get_filter_type(&self) -> TrafficFilterType {
         self.filter_type
     }
 
+    pub fn set_filter_type(&mut self, value: TrafficFilterType) {
+        self.filter_type = value;
+    }
+
     pub fn get_filter_list(&self) -> Vec<String> {
-        match self.clone().get_filter() {
-            TrafficFilterType::Allow => self.filter_list.deny.clone(),
-            TrafficFilterType::Deny => self.filter_list.allow.clone(),
+        match self.get_filter_type() {
+            TrafficFilterType::Allow => self.filter_list.allow_exclusions.clone(),
+            TrafficFilterType::Deny => self.filter_list.deny_exclusions.clone(),
+        }
+    }
+
+    pub fn get_filter_list_mut(&mut self) -> &mut Vec<String> {
+        match self.get_filter_type() {
+            TrafficFilterType::Allow => self.filter_list.allow_exclusions.as_mut(),
+            TrafficFilterType::Deny => self.filter_list.deny_exclusions.as_mut(),
         }
     }
 
     pub fn set_filter_list(&mut self, list: Vec<String>) {
-        match self.clone().get_filter() {
-            TrafficFilterType::Allow => self.filter_list.allow = list,
-            TrafficFilterType::Deny => self.filter_list.deny = list,
+        println!("Setting {:?} list to: {:?}", self.get_filter_type(), list);
+        match self.get_filter_type() {
+            TrafficFilterType::Allow => self.filter_list.allow_exclusions = list,
+            TrafficFilterType::Deny => self.filter_list.deny_exclusions = list,
         }
+
+        println!("New list: {:?}", self.get_filter_list());
     }
 
     pub fn in_filter_list(&self, uri: String) -> bool {
         self.get_filter_list()
             .iter()
             .any(|item| uri.contains(item) || item.contains(&uri))
+    }
+
+    pub fn update_filter_list(&mut self, value: String) {
+        if self.in_filter_list(value.clone()) {
+            self.get_filter_list_mut()
+                .retain(|item| item.clone() != value);
+        } else {
+            self.get_filter_list_mut().push(value);
+        }
+
+        println!("filter-list: {:?}", self.get_filter_list());
     }
 }

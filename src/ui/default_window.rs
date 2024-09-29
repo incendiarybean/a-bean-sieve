@@ -3,7 +3,10 @@ use eframe::{
     epaint::{Color32, Stroke},
 };
 
-use crate::{service::proxy::Proxy, ui::main_body};
+use crate::{
+    service::{proxy::Proxy, traffic_filter::TrafficFilter},
+    ui::main_body,
+};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -28,13 +31,18 @@ impl MainWindow {
             let previous_values: MainWindow =
                 eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 
+            let traffic_filter = match previous_values.proxy.traffic_filter.lock() {
+                Ok(traffic_filter) => traffic_filter.clone(),
+                Err(_) => TrafficFilter::default(),
+            };
+
             // Create new proxy to generate mutables
             return Self {
                 // TODO: Restore previous values before creating a default (misaligned MUTEX variables)
                 proxy: Proxy::new(
                     previous_values.proxy.port,
                     previous_values.proxy.logs,
-                    previous_values.proxy.traffic_filter,
+                    traffic_filter,
                 ),
             };
         }
