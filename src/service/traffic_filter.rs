@@ -82,16 +82,15 @@ impl TrafficFilter {
         }
     }
 
-    pub fn in_filter_list(&self, uri: String) -> bool {
+    pub fn in_filter_list(&self, uri: &String) -> bool {
         self.get_filter_list()
             .iter()
-            .any(|item| uri.contains(item) || item.contains(&uri))
+            .any(|item| uri.contains(item) || item.contains(*&uri))
     }
 
     pub fn update_filter_list(&mut self, value: String) {
-        if self.in_filter_list(value.clone()) {
-            self.get_filter_list_mut()
-                .retain(|item| item.clone() != value);
+        if self.in_filter_list(&value) {
+            self.get_filter_list_mut().retain(|item| item != &value);
         } else {
             self.get_filter_list_mut().push(value);
         }

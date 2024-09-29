@@ -429,7 +429,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                 .show_unindented(ui, |ui| {
                     ui.group(|ui| {
                         ui.push_id("request_logs_scrollarea", |ui| {
-                            let request_list = proxy.clone().get_requests();
+                            let request_list = proxy.get_requests();
                             let num_rows = request_list.len();
 
                             egui::ScrollArea::new([true, true])
@@ -465,7 +465,7 @@ fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                                     );
                                                                     ui.label(uri_truncated)
                                                                         .on_hover_text_at_pointer(
-                                                                            request.clone(),
+                                                                            &request,
                                                                         );
                                                                 },
                                                             );

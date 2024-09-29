@@ -103,7 +103,7 @@ pub struct Proxy {
     pub selected_value: String,
     pub selected_exclusion_row: ProxyExclusionRow,
 
-    // Skip these as Default values are fine
+    // Skip these as we don't want to restore these values
     #[serde(skip)]
     pub run_time: Arc<Mutex<Option<std::time::Instant>>>,
     #[serde(skip)]
@@ -125,17 +125,17 @@ impl Default for Proxy {
         // Run the event handler
         Self::event_handler(
             event_receiver,
-            status.clone(),
-            requests.clone(),
-            run_time.clone(),
-            traffic_filter.clone(),
+            Arc::clone(&status),
+            Arc::clone(&requests),
+            Arc::clone(&run_time),
+            Arc::clone(&traffic_filter),
         );
 
         Self {
             port: String::new(),
             port_error: String::default(),
             start_enabled: true,
-            event: event_sender.clone(),
+            event: event_sender,
             selected_value: String::new(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
@@ -165,17 +165,17 @@ impl Proxy {
 
         Self::event_handler(
             event_receiver,
-            status.clone(),
-            requests.clone(),
-            run_time.clone(),
-            traffic_filter.clone(),
+            Arc::clone(&status),
+            Arc::clone(&requests),
+            Arc::clone(&run_time),
+            Arc::clone(&traffic_filter),
         );
 
         Self {
             port,
             port_error: String::default(),
             start_enabled: true,
-            event: event_sender.clone(),
+            event: event_sender,
             selected_value: String::new(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
@@ -201,11 +201,6 @@ impl Proxy {
         run_time: Arc<Mutex<Option<std::time::Instant>>>,
         traffic_filter: Arc<Mutex<TrafficFilter>>,
     ) {
-        // let requests: Arc<Mutex<Vec<ProxyRequestLog>>> = Arc::clone(&requests);
-        // let status = Arc::clone(&status);
-        // let run_time = Arc::clone(&run_time);
-        // let traffic_filter = Arc::clone(&traffic_filter);
-
         thread::spawn(move || {
             loop {
                 // Sleep loop to loosen CPU stress
@@ -279,8 +274,6 @@ impl Proxy {
                         ProxyEvent::UpdateFilterList(uri) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
                             traffic_filter.update_filter_list(uri);
-
-                            *traffic_filter = traffic_filter.clone()
                         }
                         ProxyEvent::UpdateFilterListRecord(exclusion_row) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
@@ -304,16 +297,12 @@ impl Proxy {
 
     #[tokio::main]
     pub async fn proxy_service(self) -> io::Result<()> {
-        let addr = SocketAddr::from((
-            [127, 0, 0, 1],
-            self.port.trim().parse::<u16>().unwrap().clone(),
-        ));
+        let addr = SocketAddr::from(([127, 0, 0, 1], self.port.trim().parse::<u16>().unwrap()));
 
-        let event_clone = self.event.clone();
-
-        let mut signal = std::pin::pin!(Self::handle_termination(event_clone, self.status.clone()));
+        let mut signal = std::pin::pin!(Self::handle_termination(self.event.clone(), self.status));
 
         let listener = TcpListener::bind(addr).await;
+
         let internal_event_sender = self.event.clone();
 
         let proxy_service = service_fn(move |request| {
@@ -406,7 +395,7 @@ impl Proxy {
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
         let request_uri = request.uri().to_string();
 
-        let is_excluded_address = traffic_filter.in_filter_list(request_uri.clone());
+        let is_excluded_address = traffic_filter.in_filter_list(&request_uri);
         let is_traffic_blocking = match traffic_filter.get_filter_type() {
             TrafficFilterType::Allow => false,
             TrafficFilterType::Deny => true,
@@ -418,7 +407,7 @@ impl Proxy {
             let blocked = is_allowing_but_excluded || is_blocking_but_exluded;
 
             // Log the event
-            let logger = (request.method().to_string(), request_uri.clone(), blocked);
+            let logger = (request.method().to_string(), request_uri, blocked);
             event.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
             if blocked {
