@@ -4,7 +4,10 @@ use eframe::{
 };
 
 use crate::{
-    service::{proxy::Proxy, traffic_filter::TrafficFilter},
+    service::{
+        proxy::{Proxy, ProxyView},
+        traffic_filter::TrafficFilter,
+    },
     ui::main_body,
 };
 
@@ -41,7 +44,7 @@ impl MainWindow {
                 // TODO: Restore previous values before creating a default (misaligned MUTEX variables)
                 proxy: Proxy::new(
                     previous_values.proxy.port,
-                    previous_values.proxy.logs,
+                    previous_values.proxy.view,
                     traffic_filter,
                 ),
             };
@@ -57,10 +60,13 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.proxy.logs {
-            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(650., 500.)));
-        } else if !self.proxy.logs {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250., 160.)));
+        match self.proxy.view {
+            ProxyView::Min => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250., 160.)))
+            }
+            ProxyView::Logs | ProxyView::Filter => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(650., 500.)))
+            }
         }
 
         #[cfg(target_os = "macos")]

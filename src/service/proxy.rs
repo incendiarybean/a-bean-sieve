@@ -17,9 +17,10 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::traffic_filter::{TrafficFilter, TrafficFilterType};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum ProxyEvent {
     Running,
+    #[default]
     Stopped,
     Error(String),
     Terminating,
@@ -67,11 +68,6 @@ impl Default for ProxyExclusionRow {
     }
 }
 
-#[derive(serde::Serialize)]
-pub struct ProxyExclusionList {
-    pub request: String,
-}
-
 pub enum ProxyExclusionUpdateKind {
     Edit,
     Add,
@@ -85,6 +81,24 @@ pub struct ProxyRequestLog {
     pub blocked: bool,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default)]
+pub enum ProxyView {
+    #[default]
+    Min,
+    Logs,
+    Filter,
+}
+
+impl ToString for ProxyView {
+    fn to_string(&self) -> String {
+        match self {
+            ProxyView::Min => String::from("Default View"),
+            ProxyView::Logs => String::from("Log View"),
+            ProxyView::Filter => String::from("Filter View"),
+        }
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 #[serde(default)]
 pub struct Proxy {
@@ -93,8 +107,20 @@ pub struct Proxy {
     pub port_error: String,
     pub start_enabled: bool,
 
-    // Logs
-    pub logs: bool,
+    // Which view is currently showing, one of ProxyView
+    pub view: ProxyView,
+
+    // The current Proxy status, one of ProxyEvent
+    #[serde(skip)]
+    pub status: Arc<Mutex<ProxyEvent>>,
+
+    // The current event sender, send one of ProxyEvent
+    #[serde(skip)]
+    pub event: std::sync::mpsc::Sender<ProxyEvent>,
+
+    // The list of requests to show in the logs
+    #[serde(skip)]
+    pub requests: Arc<Mutex<Vec<ProxyRequestLog>>>,
 
     // Traffic Filters
     pub traffic_filter: Arc<Mutex<TrafficFilter>>,
@@ -103,21 +129,15 @@ pub struct Proxy {
     pub selected_value: String,
     pub selected_exclusion_row: ProxyExclusionRow,
 
-    // Skip these as we don't want to restore these values
+    // Store the current running time of the Proxy
     #[serde(skip)]
     pub run_time: Arc<Mutex<Option<std::time::Instant>>>,
-    #[serde(skip)]
-    pub event: std::sync::mpsc::Sender<ProxyEvent>,
-    #[serde(skip)]
-    pub status: Arc<Mutex<ProxyEvent>>,
-    #[serde(skip)]
-    pub requests: Arc<Mutex<Vec<ProxyRequestLog>>>,
 }
 
 impl Default for Proxy {
     fn default() -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
-        let status = Arc::new(Mutex::new(ProxyEvent::Stopped));
+        let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
         let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(TrafficFilter::default()));
@@ -139,7 +159,7 @@ impl Default for Proxy {
             selected_value: String::new(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
-            logs: false,
+            view: ProxyView::default(),
             requests,
             run_time,
             traffic_filter,
@@ -152,13 +172,13 @@ impl Proxy {
     ///
     /// # Arguments
     /// * `port` - A String that contains the port
-    /// * `logs` - A bool that contains whether the logs are showing or not
+    /// * `view` - A ProxyView value indicating which view is active
     /// * `traffic_filter` - A TrafficFilter containing the applied filters
-    pub fn new(port: String, logs: bool, traffic_filter: TrafficFilter) -> Self {
+    pub fn new(port: String, view: ProxyView, traffic_filter: TrafficFilter) -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
 
         // Need a value, and a shareable value to update the original reference
-        let status = Arc::new(Mutex::new(ProxyEvent::Stopped));
+        let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
         let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(traffic_filter));
@@ -179,7 +199,7 @@ impl Proxy {
             selected_value: String::new(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
-            logs,
+            view,
             requests,
             run_time,
             traffic_filter,
