@@ -39,6 +39,8 @@ impl MainWindow {
                 Err(_) => TrafficFilter::default(),
             };
 
+            let log_level = previous_values.proxy.logger.level();
+
             // Create new proxy to generate mutables
             return Self {
                 // TODO: Restore previous values before creating a default (misaligned MUTEX variables)
@@ -46,6 +48,7 @@ impl MainWindow {
                     previous_values.proxy.port,
                     previous_values.proxy.view,
                     traffic_filter,
+                    log_level,
                 ),
             };
         }

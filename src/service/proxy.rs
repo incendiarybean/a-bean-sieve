@@ -1,4 +1,3 @@
-use colored::Colorize;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{
     body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
@@ -10,10 +9,12 @@ use std::{
     io,
     net::SocketAddr,
     sync::{mpsc::Receiver, Arc, Mutex},
-    thread,
+    thread::{self},
     time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
+
+use crate::utils::logger::{LogLevel, Logger};
 
 use super::traffic_filter::{TrafficFilter, TrafficFilterType};
 
@@ -25,7 +26,7 @@ pub enum ProxyEvent {
     Error(String),
     Terminating,
     Terminated,
-    RequestEvent((String, String, bool)),
+    RequestEvent(ProxyRequestLog),
 
     // Traffic Filter related Events
     ToggleFilterActive,
@@ -74,11 +75,20 @@ pub enum ProxyExclusionUpdateKind {
     Remove,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct ProxyRequestLog {
     pub method: String,
     pub request: String,
     pub blocked: bool,
+}
+
+impl ProxyRequestLog {
+    fn to_blocked_string(&self) -> String {
+        match self.blocked {
+            true => String::from("BLOCKED"),
+            false => String::from("ALLOWED"),
+        }
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default)]
@@ -110,6 +120,9 @@ pub struct Proxy {
     // Which view is currently showing, one of ProxyView
     pub view: ProxyView,
 
+    // Logger
+    pub logger: Logger,
+
     // The current Proxy status, one of ProxyEvent
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
@@ -137,10 +150,12 @@ pub struct Proxy {
 impl Default for Proxy {
     fn default() -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
+
+        let logger = Logger::default();
         let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
-        let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(TrafficFilter::default()));
+        let run_time = Arc::new(Mutex::new(None));
 
         // Run the event handler
         Self::event_handler(
@@ -149,20 +164,22 @@ impl Default for Proxy {
             Arc::clone(&requests),
             Arc::clone(&run_time),
             Arc::clone(&traffic_filter),
+            logger.clone(),
         );
 
         Self {
-            port: String::new(),
+            port: String::default(),
             port_error: String::default(),
             start_enabled: true,
-            event: event_sender,
-            selected_value: String::new(),
-            selected_exclusion_row: ProxyExclusionRow::default(),
-            status,
             view: ProxyView::default(),
+            logger,
+            status,
+            event: event_sender,
             requests,
-            run_time,
             traffic_filter,
+            selected_value: String::default(),
+            selected_exclusion_row: ProxyExclusionRow::default(),
+            run_time,
         }
     }
 }
@@ -174,14 +191,22 @@ impl Proxy {
     /// * `port` - A String that contains the port
     /// * `view` - A ProxyView value indicating which view is active
     /// * `traffic_filter` - A TrafficFilter containing the applied filters
-    pub fn new(port: String, view: ProxyView, traffic_filter: TrafficFilter) -> Self {
+    /// * `log_level` - The logging level
+    pub fn new(
+        port: String,
+        view: ProxyView,
+        traffic_filter: TrafficFilter,
+        log_level: LogLevel,
+    ) -> Self {
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
 
-        // Need a value, and a shareable value to update the original reference
+        let mut logger = Logger::default();
+        logger.set_level(log_level);
+
         let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
-        let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(traffic_filter));
+        let run_time = Arc::new(Mutex::new(None));
 
         Self::event_handler(
             event_receiver,
@@ -189,20 +214,22 @@ impl Proxy {
             Arc::clone(&requests),
             Arc::clone(&run_time),
             Arc::clone(&traffic_filter),
+            logger.clone(),
         );
 
         Self {
             port,
             port_error: String::default(),
             start_enabled: true,
-            event: event_sender,
-            selected_value: String::new(),
-            selected_exclusion_row: ProxyExclusionRow::default(),
-            status,
             view,
+            logger,
+            status,
+            event: event_sender,
             requests,
-            run_time,
             traffic_filter,
+            selected_value: String::default(),
+            selected_exclusion_row: ProxyExclusionRow::default(),
+            run_time,
         }
     }
 
@@ -220,7 +247,9 @@ impl Proxy {
         requests: Arc<Mutex<Vec<ProxyRequestLog>>>,
         run_time: Arc<Mutex<Option<std::time::Instant>>>,
         traffic_filter: Arc<Mutex<TrafficFilter>>,
+        logger: Logger,
     ) {
+        let logger = logger;
         thread::spawn(move || {
             loop {
                 // Sleep loop to loosen CPU stress
@@ -231,7 +260,7 @@ impl Proxy {
                     Ok(event) => match event {
                         // Generic Events
                         ProxyEvent::Running => {
-                            println!("{}", "Running service...".green());
+                            logger.info("Service is now running...");
 
                             let mut run_time = run_time.lock().unwrap();
                             *run_time = Some(std::time::Instant::now());
@@ -239,20 +268,22 @@ impl Proxy {
                             let mut status = status.lock().unwrap();
                             *status = event;
                         }
-                        ProxyEvent::Terminated | ProxyEvent::Stopped => {
+                        ProxyEvent::Terminating => {
+                            logger.info("Service is being terminated...");
+
+                            let mut status = status.lock().unwrap();
+                            *status = event;
+                        }
+                        ProxyEvent::Terminated => {
                             let mut status = status.lock().unwrap();
                             *status = ProxyEvent::Stopped;
 
                             let mut run_time = run_time.lock().unwrap();
                             *run_time = None;
-                        }
-                        ProxyEvent::Error(message) => {
-                            println!("{}", message.red());
 
-                            let mut status = status.lock().unwrap();
-                            *status = ProxyEvent::Error(message);
+                            logger.info("Service is now stopped.");
                         }
-                        ProxyEvent::RequestEvent((method, request, blocked)) => {
+                        ProxyEvent::RequestEvent(request_log) => {
                             // We need to have a --no-gui option to enable this
                             // println!(
                             //     "{} {} {}",
@@ -266,34 +297,60 @@ impl Proxy {
                             // );
 
                             let mut requests_list = requests.lock().unwrap();
-                            requests_list.push(ProxyRequestLog {
-                                method,
-                                request,
-                                blocked,
-                            });
+                            requests_list.push(request_log.clone());
+
+                            let log_str = format!(
+                                "{} -> Request to: {} -> {}",
+                                request_log.method,
+                                request_log.request,
+                                request_log.to_blocked_string()
+                            );
+                            logger.debug(&log_str);
                         }
                         // Traffic Filter events
                         ProxyEvent::ToggleFilterActive => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
                             let enabled = traffic_filter.get_enabled();
                             traffic_filter.set_enabled(!enabled);
+
+                            let log_str =
+                                format!("Filter is now active: {}", traffic_filter.get_enabled());
+                            logger.debug(&log_str);
                         }
                         ProxyEvent::SwitchFilterList => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
                             let switched_filter = traffic_filter.get_opposing_filter_type();
                             traffic_filter.set_filter_type(switched_filter);
+
+                            let log_str = format!(
+                                "Filter has switched to: {:?}",
+                                traffic_filter.get_filter_type()
+                            );
+                            logger.debug(&log_str);
                         }
                         ProxyEvent::SetFilterList(exclusion_list) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
                             traffic_filter.set_filter_list(exclusion_list);
+
+                            logger.debug("Filter list has been updated.");
                         }
                         ProxyEvent::UpdateFilterList(uri) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
-                            traffic_filter.update_filter_list(uri);
+                            traffic_filter.update_filter_list(uri.clone());
+
+                            let log_str =
+                                format!("Filter list has been updated with value: {}", uri);
+                            logger.debug(&log_str);
                         }
                         ProxyEvent::UpdateFilterListRecord(index, value) => {
                             let mut traffic_filter = traffic_filter.lock().unwrap();
-                            traffic_filter.update_filter_list_item(index, value);
+                            traffic_filter.update_filter_list_item(index, value.clone());
+
+                            let log_str = format!(
+                                "Filter list has been updated with value: {} at index: {}",
+                                value, index
+                            );
+                            logger.debug(&log_str);
                         }
                         _ => {
                             let mut status = status.lock().unwrap();
@@ -301,8 +358,10 @@ impl Proxy {
                         }
                     },
                     Err(message) => {
+                        let message = message.to_string();
+
                         let mut status = status.lock().unwrap();
-                        *status = ProxyEvent::Error(message.to_string())
+                        *status = ProxyEvent::Error(message.clone());
                     }
                 }
             }
@@ -313,17 +372,21 @@ impl Proxy {
     pub async fn proxy_service(self) -> io::Result<()> {
         let addr = SocketAddr::from(([127, 0, 0, 1], self.port.trim().parse::<u16>().unwrap()));
 
-        let mut signal = std::pin::pin!(Self::handle_termination(self.event.clone(), self.status));
+        let mut signal = std::pin::pin!(Self::handle_termination(
+            self.event.clone(),
+            self.status.clone()
+        ));
 
         let listener = TcpListener::bind(addr).await;
 
         let internal_event_sender = self.event.clone();
-
+        let logger_clone = self.logger.clone();
         let proxy_service = service_fn(move |request| {
             Self::request(
                 request,
                 internal_event_sender.clone(),
                 self.traffic_filter.lock().unwrap().clone(),
+                logger_clone.clone(),
             )
         });
 
@@ -332,6 +395,7 @@ impl Proxy {
                 self.event.send(ProxyEvent::Running).unwrap();
 
                 loop {
+                    let logger = self.logger.clone();
                     tokio::select! {
                         Ok((stream, _addr)) = listener.accept() => {
                             let io = TokioIo::new(stream);
@@ -342,7 +406,9 @@ impl Proxy {
                                 .with_upgrades();
 
                             tokio::task::spawn(async move {
-                                let _ = connection.await;
+                                if let Err(message) = connection.await {
+                                    logger.warning(&message.to_string());
+                                }
                             });
                         },
 
@@ -350,10 +416,11 @@ impl Proxy {
                     }
                 }
             }
-            Err(message) => self
-                .event
-                .send(ProxyEvent::Error(message.to_string()))
-                .unwrap(),
+            Err(message) => {
+                self.event
+                    .send(ProxyEvent::Error(message.to_string()))
+                    .unwrap();
+            }
         }
 
         Ok(())
@@ -390,7 +457,6 @@ impl Proxy {
         match shutdown_rec.await {
             Ok(_) => {
                 event.send(ProxyEvent::Terminated).unwrap();
-                println!("{}", "Terminated Service.".red());
             }
             Err(_) => {}
         }
@@ -406,6 +472,7 @@ impl Proxy {
         request: Request<hyper::body::Incoming>,
         event: std::sync::mpsc::Sender<ProxyEvent>,
         traffic_filter: TrafficFilter,
+        logger: Logger,
     ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
         let request_uri = request.uri().to_string();
 
@@ -421,7 +488,12 @@ impl Proxy {
             let blocked = is_allowing_but_excluded || is_blocking_but_exluded;
 
             // Log the event
-            let logger = (request.method().to_string(), request_uri, blocked);
+            let logger = ProxyRequestLog {
+                method: request.method().to_string(),
+                request: request_uri,
+                blocked,
+            };
+
             event.send(ProxyEvent::RequestEvent(logger)).unwrap();
 
             if blocked {
@@ -438,7 +510,7 @@ impl Proxy {
                         Ok(upgraded) => {
                             let _ = Self::tunnel(upgraded, addr).await;
                         }
-                        Err(_) => {}
+                        Err(message) => logger.error(&message.to_string()),
                     }
                 });
 
@@ -523,6 +595,10 @@ impl Proxy {
         };
 
         proxy_state.clone()
+    }
+
+    pub fn get_logger(&self) -> Logger {
+        self.logger.clone()
     }
 
     /// Returns the Proxy's current TrafficFilter

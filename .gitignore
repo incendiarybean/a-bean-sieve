@@ -2,3 +2,5 @@
 allow_list*
 block_list*
 scripts
+test*
+TODO.md
