@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use colored::Colorize;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{
     body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
@@ -220,6 +219,7 @@ impl Proxy {
 
     // Send the stop event for the service
     pub fn stop(&self) {
+        self.logger.info("Service is now stopping...");
         self.send(ProxyEvent::Terminating);
     }
 
@@ -255,7 +255,7 @@ impl Proxy {
                             *status.lock().unwrap() = event;
                         }
                         ProxyEvent::Terminated => {
-                            logger.info("Service is being terminated...");
+                            logger.info("Service has been stopped.");
 
                             *status.lock().unwrap() = ProxyEvent::Stopped;
 
@@ -484,7 +484,6 @@ async fn handle_termination(
         Ok(_) => {
             if let Some(event) = event {
                 event.send(ProxyEvent::Terminated).unwrap();
-                println!("{}", "Terminated Service.".red());
             }
         }
         Err(_) => {}
