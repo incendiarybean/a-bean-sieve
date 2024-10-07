@@ -1,0 +1,12 @@
+# TODO LIST
+- [] Rework Event handling, e.g. separate ::new/::default and Self::event_handler
+- [] Rework proxy_start
+- [] Add logging event
+- [] Remove printlns to opt for logger
+- [] Add logs panel
+- [] Make logs filterable e.g. log_level
+- [] Make exclusion list editor better
+- [] Add friendly icons
+- [] Reword/iconise the expand button
+- [] HTTP1/HTTP2 switch
+- [] HTTPS support?

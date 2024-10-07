@@ -203,21 +203,13 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
 
                             match current_proxy_status {
                                 ProxyEvent::Running => {
-                                    if ui
-                                        .add_enabled(
-                                            current_proxy_status == ProxyEvent::Running,
-                                            launch_btn,
-                                        )
-                                        .clicked()
-                                    {
-                                        println!("{}", "Terminating Service...".yellow());
-                                        proxy.event.send(ProxyEvent::Terminating).unwrap();
+                                    if ui.add(launch_btn).clicked() {
+                                        proxy.stop()
                                     }
                                 }
                                 _ => {
                                     if ui.add_enabled(proxy.start_enabled, launch_btn).clicked() {
-                                        let proxy_clone = proxy.clone();
-                                        std::thread::spawn(move || proxy_clone.proxy_service());
+                                        proxy.run();
                                     }
                                 }
                             }
@@ -229,7 +221,9 @@ fn control_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                         ui.add(egui::Label::new(
                             RichText::new(current_proxy_status.to_string()).color(
                                 match current_proxy_status {
-                                    ProxyEvent::Running => Color32::LIGHT_GREEN,
+                                    ProxyEvent::Running | ProxyEvent::Starting => {
+                                        Color32::LIGHT_GREEN
+                                    }
                                     _ => Color32::LIGHT_RED,
                                 },
                             ),
