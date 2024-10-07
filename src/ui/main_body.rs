@@ -13,7 +13,10 @@ use crate::service::{
     },
     traffic_filter::TrafficFilterType,
 };
-use crate::utils::csv_handler::{read_from_csv, write_csv_from_vec};
+use crate::utils::{
+    csv_handler::{read_from_csv, write_csv_from_vec},
+    logger::LogLevel,
+};
 
 use super::custom_widgets::toggle_ui;
 
@@ -25,7 +28,7 @@ pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
         ..Default::default()
     };
 
-    // Main window, split, control_panel left and logs_panel right
+    // Main window, split, control panel left and secondary view right
     CentralPanel::default()
         .frame(panel_frame)
         .show(ui.ctx(), |ui| {
@@ -286,7 +289,7 @@ fn filter_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 Ok(list) => {
                                     proxy.set_exclusion_list(list);
                                 }
-                                Err(error) => println!("{}", error),
+                                Err(error) => proxy.logger.error(&error.to_string()),
                             }
                         }
                     }
@@ -298,16 +301,22 @@ fn filter_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 vec!["REQUEST"],
                                 proxy.get_traffic_filter().get_filter_list(),
                             ) {
-                                Ok(_) => println!(
-                                    "{} -> {}",
-                                    "Exported Exclusions to file".blue(),
-                                    path.display().to_string().green()
-                                ),
-                                Err(error) => println!(
-                                    "{} -> {}",
-                                    "There was an error during the export".red(),
-                                    error.to_string().red()
-                                ),
+                                Ok(_) => {
+                                    let message = format!(
+                                        "{} -> {}",
+                                        "Exported Exclusions to file",
+                                        path.display().to_string()
+                                    );
+                                    proxy.logger.debug(&message);
+                                }
+                                Err(error) => {
+                                    let message = format!(
+                                        "{} -> {}",
+                                        "There was an error during the export".red(),
+                                        error.to_string().red()
+                                    );
+                                    proxy.logger.debug(&message);
+                                }
                             };
                         }
                     }
@@ -319,16 +328,22 @@ fn filter_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                 vec!["METHOD", "REQUEST", "BLOCKED"],
                                 proxy.get_requests(),
                             ) {
-                                Ok(_) => println!(
-                                    "{} -> {}",
-                                    "Exported Requests to file".blue(),
-                                    path.display().to_string().green()
-                                ),
-                                Err(error) => println!(
-                                    "{} -> {}",
-                                    "There was an error during the export".red(),
-                                    error.to_string().red()
-                                ),
+                                Ok(_) => {
+                                    let message = format!(
+                                        "{} -> {}",
+                                        "Exported Requests to file".blue(),
+                                        path.display().to_string().green()
+                                    );
+                                    proxy.logger.debug(&message);
+                                }
+                                Err(error) => {
+                                    let message = format!(
+                                        "{} -> {}",
+                                        "There was an error during the export",
+                                        error.to_string()
+                                    );
+                                    proxy.logger.debug(&message);
+                                }
                             };
                         };
                     }
@@ -405,11 +420,12 @@ fn filter_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
                                                     Layout::right_to_left(Align::Min),
                                                     |ui| {
                                                         if ui.button("Remove").clicked() {
-                                                            println!(
-                                                                "{} - {}",
-                                                                "Deleting item".green(),
-                                                                uri.red()
+                                                            let message = format!(
+                                                                "{} -> {}",
+                                                                "Deleting item", uri
                                                             );
+                                                            proxy.logger.debug(&message);
+
                                                             proxy.selected_value = uri.to_string();
                                                             proxy.update_exclusion_list(
                                                                 ProxyExclusionUpdateKind::Remove,
@@ -553,18 +569,66 @@ fn filter_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     });
 }
 
-fn logs_panel(_proxy: &mut Proxy, ui: &mut egui::Ui) {
+fn logs_panel(proxy: &mut Proxy, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            ui.label("Log Filters:");
-            let _ = ui.button("All");
-            let _ = ui.button("Info");
-            let _ = ui.button("Error");
-            let _ = ui.button("Warning");
+            ui.label("Set Log Level:");
+            if ui.button("Debug").clicked() {
+                proxy.logger.set_level(LogLevel::Debug);
+            }
+            if ui.button("Info").clicked() {
+                proxy.logger.set_level(LogLevel::Info);
+            }
+            if ui.button("Error").clicked() {
+                proxy.logger.set_level(LogLevel::Error);
+            }
+            if ui.button("Warning").clicked() {
+                proxy.logger.set_level(LogLevel::Warning);
+            }
         });
         ui.add_space(2.);
         ui.group(|ui| {
-            ui.allocate_space(ui.available_size());
+            let list = proxy.get_logger().get_logs();
+            let num_rows = list.len();
+
+            egui::ScrollArea::new([true, true])
+                .auto_shrink([false, false])
+                .max_height(ui.available_height())
+                .show_rows(ui, 18.0, num_rows, |ui, row_range| {
+                    egui::Grid::new("logging_grid")
+                        .striped(true)
+                        .num_columns(3)
+                        .min_col_width(ui.available_width())
+                        .max_col_width(ui.available_width())
+                        .show(ui, |ui| {
+                            for row in row_range {
+                                if let Some(log) = list.get(row) {
+                                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                        ui.label(
+                                            RichText::new(log.timestamp.clone())
+                                                .color(Color32::from_rgb(255, 0, 255)),
+                                        );
+
+                                        ui.label(
+                                            RichText::new(log.level.to_string())
+                                                .color(log.level.to_color32()),
+                                        );
+
+                                        ui.with_layout(
+                                            Layout::left_to_right(Align::Center),
+                                            |ui| {
+                                                let message_lbl =
+                                                    egui::Label::new(log.message.clone())
+                                                        .truncate();
+                                                ui.add(message_lbl);
+                                            },
+                                        );
+                                    });
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                });
         });
     });
 }

@@ -1,3 +1,10 @@
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
+
 use colored::Colorize;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{
@@ -5,14 +12,10 @@ use hyper::{
     Request, Response,
 };
 use hyper_util::rt::TokioIo;
-use std::{
-    fmt::Debug,
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+
 use tokio::net::{TcpListener, TcpStream};
+
+use crate::utils::logger::{LogLevel, Logger};
 
 use super::traffic_filter::{TrafficFilter, TrafficFilterType};
 
@@ -25,7 +28,7 @@ pub enum ProxyEvent {
     Error(String),
     Terminating,
     Terminated,
-    RequestEvent((String, String, bool)),
+    RequestEvent(ProxyRequestLog),
 }
 
 impl std::string::ToString for ProxyEvent {
@@ -68,11 +71,20 @@ pub enum ProxyExclusionUpdateKind {
     Remove,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct ProxyRequestLog {
     pub method: String,
     pub request: String,
     pub blocked: bool,
+}
+
+impl ProxyRequestLog {
+    fn to_blocked_string(&self) -> String {
+        match self.blocked {
+            true => String::from("BLOCKED"),
+            false => String::from("ALLOWED"),
+        }
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default)]
@@ -104,6 +116,9 @@ pub struct Proxy {
     // Which view is currently showing, one of ProxyView
     pub view: ProxyView,
 
+    // Logger
+    pub logger: Logger,
+
     // The current Proxy status, one of ProxyEvent
     #[serde(skip)]
     pub status: Arc<Mutex<ProxyEvent>>,
@@ -130,23 +145,25 @@ pub struct Proxy {
 
 impl Default for Proxy {
     fn default() -> Self {
+        let logger = Logger::default();
         let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
-        let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(TrafficFilter::default()));
+        let run_time = Arc::new(Mutex::new(None));
 
         Self {
-            port: String::new(),
+            port: String::default(),
             port_error: String::default(),
             start_enabled: true,
             event: Arc::new(Mutex::new(None)),
-            selected_value: String::new(),
+            selected_value: String::default(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
             view: ProxyView::default(),
+            logger,
             requests,
-            run_time,
             traffic_filter,
+            run_time,
         }
     }
 }
@@ -158,25 +175,34 @@ impl Proxy {
     /// * `port` - A String that contains the port
     /// * `view` - A ProxyView value indicating which view is active
     /// * `traffic_filter` - A TrafficFilter containing the applied filters
-    pub fn new(port: String, view: ProxyView, traffic_filter: TrafficFilter) -> Self {
-        // Need a value, and a shareable value to update the original reference
+    /// * `log_level` - The logging level
+    pub fn new(
+        port: String,
+        view: ProxyView,
+        traffic_filter: TrafficFilter,
+        log_level: LogLevel,
+    ) -> Self {
+        let mut logger = Logger::default();
+        logger.set_level(log_level);
+
         let status = Arc::new(Mutex::new(ProxyEvent::default()));
         let requests = Arc::new(Mutex::new(Vec::<ProxyRequestLog>::new()));
-        let run_time = Arc::new(Mutex::new(None));
         let traffic_filter = Arc::new(Mutex::new(traffic_filter));
+        let run_time = Arc::new(Mutex::new(None));
 
         Self {
             port,
             port_error: String::default(),
             start_enabled: true,
             event: Arc::new(Mutex::new(None)),
-            selected_value: String::new(),
+            selected_value: String::default(),
             selected_exclusion_row: ProxyExclusionRow::default(),
             status,
             view,
+            logger,
             requests,
-            run_time,
             traffic_filter,
+            run_time,
         }
     }
 
@@ -207,6 +233,7 @@ impl Proxy {
         let status = self.status.clone();
         let requests = self.requests.clone();
         let event_clone = self.event.clone();
+        let logger = self.logger.clone();
 
         thread::spawn(move || {
             loop {
@@ -223,10 +250,13 @@ impl Proxy {
                         ProxyEvent::Running => {
                             // Start the timer
                             *run_time.lock().unwrap() = Some(std::time::Instant::now());
+                            logger.info("Service is now running...");
 
                             *status.lock().unwrap() = event;
                         }
-                        ProxyEvent::Terminated | ProxyEvent::Stopped => {
+                        ProxyEvent::Terminated => {
+                            logger.info("Service is being terminated...");
+
                             *status.lock().unwrap() = ProxyEvent::Stopped;
 
                             // Clear the timer
@@ -240,7 +270,7 @@ impl Proxy {
                         ProxyEvent::Error(message) => {
                             *status.lock().unwrap() = ProxyEvent::Error(message);
                         }
-                        ProxyEvent::RequestEvent((method, request, blocked)) => {
+                        ProxyEvent::RequestEvent(request_log) => {
                             // We need to have a --no-gui option to enable this
                             // println!(
                             //     "{} {} {}",
@@ -253,11 +283,15 @@ impl Proxy {
                             //     }
                             // );
 
-                            requests.lock().unwrap().push(ProxyRequestLog {
-                                method,
-                                request,
-                                blocked,
-                            });
+                            requests.lock().unwrap().push(request_log.clone());
+
+                            let log_str = format!(
+                                "{} -> Request to: {} -> {}",
+                                request_log.method,
+                                request_log.request,
+                                request_log.to_blocked_string()
+                            );
+                            logger.debug(&log_str);
                         }
                         _ => {
                             *status.lock().unwrap() = event;
@@ -343,6 +377,10 @@ impl Proxy {
         self.status.lock().unwrap().clone()
     }
 
+    pub fn get_logger(&self) -> Logger {
+        self.logger.clone()
+    }
+
     /// Returns the Proxy's current TrafficFilter
     pub fn get_traffic_filter(&self) -> TrafficFilter {
         self.traffic_filter.lock().unwrap().clone()
@@ -374,6 +412,7 @@ impl Proxy {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         let enabled = traffic_filter.get_enabled();
         traffic_filter.set_enabled(!enabled);
+        self.logger.debug("Traffic filtering has been toggled.");
     }
 
     /// Send an event to toggle between TrafficFilterType::Allow / TrafficFilterType::Deny
@@ -381,12 +420,14 @@ impl Proxy {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         let switched_filter = traffic_filter.get_opposing_filter_type();
         traffic_filter.set_filter_type(switched_filter);
+        self.logger.debug("Exclusion list has been switched.");
     }
 
     /// Send an event to set the current exclusion list
     pub fn set_exclusion_list(&mut self, list: Vec<String>) {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         traffic_filter.set_filter_list(list);
+        self.logger.debug("Exclusion list has been set.");
     }
 
     /// Send an event to add a value to the current exclusion list
@@ -400,10 +441,12 @@ impl Proxy {
                 );
 
                 self.selected_exclusion_row = ProxyExclusionRow::default();
+                self.logger.debug("Exclusion list value has been edited.");
             }
             ProxyExclusionUpdateKind::Add | ProxyExclusionUpdateKind::Remove => {
                 let mut traffic_filter = self.traffic_filter.lock().unwrap();
                 traffic_filter.update_filter_list(self.selected_value.clone());
+                self.logger.debug("Exclusion list has been updated.");
             }
         };
     }
@@ -473,7 +516,11 @@ async fn handle_request(
         let blocked = is_allowing_but_excluded || is_blocking_but_exluded;
 
         // Log the event
-        let logger = (request.method().to_string(), request_uri, blocked);
+        let logger = ProxyRequestLog {
+            method: request.method().to_string(),
+            request: request_uri,
+            blocked: blocked,
+        };
         if let Some(event) = event {
             event.send(ProxyEvent::RequestEvent(logger)).unwrap();
         }
