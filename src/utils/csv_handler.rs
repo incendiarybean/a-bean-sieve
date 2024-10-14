@@ -1,6 +1,5 @@
-use std::fs::File;
-
 use serde::{de::DeserializeOwned, Serialize};
+use std::fs::File;
 
 pub fn read_from_csv<CSVRecord, P: AsRef<std::path::Path>>(
     file_path: P,

@@ -1,9 +1,14 @@
+use crate::{
+    service::{
+        proxy::{Proxy, ProxyView},
+        traffic_filter::TrafficFilter,
+    },
+    ui::main_body,
+};
 use eframe::{
     egui::{self, CentralPanel, Rounding},
     epaint::{Color32, Stroke},
 };
-
-use crate::{main_body, proxy::Proxy};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -28,27 +33,21 @@ impl MainWindow {
             let previous_values: MainWindow =
                 eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 
-            let allow_blocking = match previous_values.proxy.allow_blocking.lock() {
-                Ok(allow_blocking) => *allow_blocking,
-                Err(poisoned) => *poisoned.into_inner(),
+            let traffic_filter = match previous_values.proxy.traffic_filter.lock() {
+                Ok(traffic_filter) => traffic_filter.clone(),
+                Err(_) => TrafficFilter::default(),
             };
 
-            let allow_requests_by_default =
-                match previous_values.proxy.allow_requests_by_default.lock() {
-                    Ok(allow_requests_by_default) => *allow_requests_by_default,
-                    Err(poisoned) => *poisoned.into_inner(),
-                };
+            let log_level = previous_values.proxy.logger.level();
 
             // Create new proxy to generate mutables
             return Self {
-                proxy: Proxy::default().restore_previous(
+                // TODO: Restore previous values before creating a default (misaligned MUTEX variables)
+                proxy: Proxy::new(
                     previous_values.proxy.port,
-                    previous_values.proxy.port_error,
-                    previous_values.proxy.logs,
-                    previous_values.proxy.allow_list,
-                    previous_values.proxy.block_list,
-                    allow_blocking,
-                    allow_requests_by_default,
+                    previous_values.proxy.view,
+                    traffic_filter,
+                    log_level,
                 ),
             };
         }
@@ -63,10 +62,13 @@ impl eframe::App for MainWindow {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.proxy.logs {
-            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(650., 500.)));
-        } else if !self.proxy.logs {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250., 160.)));
+        match self.proxy.view {
+            ProxyView::Min => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250., 160.)))
+            }
+            ProxyView::Logs | ProxyView::Filter => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(650., 500.)))
+            }
         }
 
         #[cfg(target_os = "macos")]
