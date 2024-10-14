@@ -259,7 +259,7 @@ impl Proxy {
                             *status.lock().unwrap() = event;
                         }
                         ProxyEvent::Terminated => {
-                            logger.info("Service has been stopped.");
+                            logger.global("Service has been stopped.");
 
                             *status.lock().unwrap() = ProxyEvent::Stopped;
 
@@ -342,7 +342,7 @@ impl Proxy {
                                 sender.send(ProxyEvent::Running).unwrap();
                             }
 
-                            logger.info("Service is now running...");
+                            logger.global("Service is now running...");
 
                             loop {
                                 tokio::select! {
@@ -557,11 +557,11 @@ async fn handle_request(
                 match hyper::upgrade::on(request).await {
                     Ok(upgraded) => {
                         if let Err(message) = tunnel(upgraded, addr).await {
-                            logger.error(&message.to_string());
+                            logger.warning(&message.to_string());
                         };
                     }
                     Err(message) => {
-                        logger.error(&message.to_string());
+                        logger.warning(&message.to_string());
                     }
                 }
             });
@@ -589,7 +589,7 @@ async fn handle_request(
 
         tokio::task::spawn(async move {
             if let Err(message) = conn.await {
-                logger.error(&message.to_string());
+                logger.warning(&message.to_string());
             };
         });
 
