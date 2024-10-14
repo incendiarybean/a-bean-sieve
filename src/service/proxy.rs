@@ -1,22 +1,18 @@
+use super::traffic_filter::TrafficFilter;
+use crate::utils::logger::{LogLevel, Logger};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use hyper::{
+    body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
+    Request, Response, Uri,
+};
+use hyper_util::rt::TokioIo;
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
-
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::{
-    body::Bytes, http, server::conn::http1, service::service_fn, upgrade::Upgraded, Method,
-    Request, Response,
-};
-use hyper_util::rt::TokioIo;
-
 use tokio::net::{TcpListener, TcpStream};
-
-use crate::utils::logger::{LogLevel, Logger};
-
-use super::traffic_filter::{TrafficFilter, TrafficFilterType};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub enum ProxyEvent {
@@ -168,13 +164,13 @@ impl Default for Proxy {
 }
 
 impl Proxy {
-    /// Creates a new Proxy from given values
+    /// Creates a new Proxy from given values.
     ///
     /// # Arguments
-    /// * `port` - A String that contains the port
-    /// * `view` - A ProxyView value indicating which view is active
-    /// * `traffic_filter` - A TrafficFilter containing the applied filters
-    /// * `log_level` - The logging level
+    /// * `port` - A String that contains the port.
+    /// * `view` - A ProxyView value indicating which view is active.
+    /// * `traffic_filter` - A TrafficFilter containing the applied filters.
+    /// * `log_level` - The logging level.
     pub fn new(
         port: String,
         view: ProxyView,
@@ -205,25 +201,26 @@ impl Proxy {
         }
     }
 
-    /// Begin the proxy service event handler and server
+    /// Begin the proxy service event handler and server.
     pub fn run(&mut self) {
         // Begin handling events
         self.handle_events();
 
         // Send the starting event
+        self.logger.info("Service is now starting...");
         self.send(ProxyEvent::Starting);
 
         // Start the server
-        self.handle_server()
+        self.handle_server();
     }
 
-    // Send the stop event for the service
+    // Send the stop event for the service.
     pub fn stop(&self) {
         self.logger.info("Service is now stopping...");
         self.send(ProxyEvent::Terminating);
     }
 
-    /// Handles ProxyEvents
+    /// Handles ProxyEvents.
     fn handle_events(&mut self) {
         let (event_sender, event_receiver) = std::sync::mpsc::channel::<ProxyEvent>();
 
@@ -250,7 +247,6 @@ impl Proxy {
                         ProxyEvent::Running => {
                             // Start the timer
                             *run_time.lock().unwrap() = Some(std::time::Instant::now());
-                            logger.info("Service is now running...");
 
                             *status.lock().unwrap() = event;
                         }
@@ -284,14 +280,6 @@ impl Proxy {
                             // );
 
                             requests.lock().unwrap().push(request_log.clone());
-
-                            let log_str = format!(
-                                "{} -> Request to: {} -> {}",
-                                request_log.method,
-                                request_log.request,
-                                request_log.to_blocked_string()
-                            );
-                            logger.debug(&log_str);
                         }
                         _ => {
                             *status.lock().unwrap() = event;
@@ -305,12 +293,13 @@ impl Proxy {
         });
     }
 
-    /// Handles the server and server requests
+    /// Handles the server and server requests.
     fn handle_server(&self) {
         let event = self.event.lock().unwrap().clone();
         let port = self.port.clone();
         let status = Arc::clone(&self.status);
         let traffic_filter = Arc::clone(&self.traffic_filter);
+        let logger = self.logger.clone();
 
         thread::spawn(move || {
             tokio::runtime::Builder::new_multi_thread()
@@ -328,11 +317,13 @@ impl Proxy {
 
                     // Create a request service
                     let proxy_service_event = event.clone();
+                    let request_logger = logger.clone();
                     let proxy_service = service_fn(move |request| {
                         handle_request(
                             request,
                             proxy_service_event.clone(),
                             traffic_filter.lock().unwrap().clone(),
+                            request_logger.clone(),
                         )
                     });
 
@@ -342,6 +333,8 @@ impl Proxy {
                             if let Some(sender) = event.clone() {
                                 sender.send(ProxyEvent::Running).unwrap();
                             }
+
+                            logger.info("Service is now running...");
 
                             loop {
                                 tokio::select! {
@@ -372,26 +365,27 @@ impl Proxy {
         });
     }
 
-    /// Returns the Proxy's current status
+    /// Returns the Proxy's current status.
     pub fn get_status(&mut self) -> ProxyEvent {
         self.status.lock().unwrap().clone()
     }
 
+    // Returns the current logger.
     pub fn get_logger(&self) -> Logger {
         self.logger.clone()
     }
 
-    /// Returns the Proxy's current TrafficFilter
+    /// Returns the Proxy's current TrafficFilter.
     pub fn get_traffic_filter(&self) -> TrafficFilter {
         self.traffic_filter.lock().unwrap().clone()
     }
 
-    /// Returns the Proxy's recent requests
+    /// Returns the Proxy's recent requests.
     pub fn get_requests(&self) -> Vec<ProxyRequestLog> {
         self.requests.lock().unwrap().to_vec()
     }
 
-    /// Returns the Proxy's current running time
+    /// Returns the Proxy's current running time.
     pub fn get_run_time(&mut self) -> String {
         let run_time = self.run_time.lock().unwrap();
         match *run_time {
@@ -400,14 +394,17 @@ impl Proxy {
         }
     }
 
-    /// Send a ProxyEvent
+    /// Send a ProxyEvent.
+    ///
+    /// # Arguments:
+    /// * `event` - A ProxyEvent to send to the event handler.
     pub fn send(&self, event: ProxyEvent) {
         if let Some(sender) = self.event.lock().unwrap().clone() {
             sender.send(event).unwrap();
         }
     }
 
-    /// Send an event to toggle the TrafficFilter on/off
+    /// Toggle the traffic filtering on/off.
     pub fn toggle_traffic_filtering(&self) {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         let enabled = traffic_filter.get_enabled();
@@ -415,7 +412,7 @@ impl Proxy {
         self.logger.debug("Traffic filtering has been toggled.");
     }
 
-    /// Send an event to toggle between TrafficFilterType::Allow / TrafficFilterType::Deny
+    /// Toggle the traffic filter between: TrafficFilterType::Allow / TrafficFilterType::Deny.
     pub fn switch_exclusion_list(&self) {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         let switched_filter = traffic_filter.get_opposing_filter_type();
@@ -423,7 +420,10 @@ impl Proxy {
         self.logger.debug("Exclusion list has been switched.");
     }
 
-    /// Send an event to set the current exclusion list
+    /// Set the current exclusion list.
+    ///
+    /// # Arguments:
+    /// * `list` - A Vec<String> to set the exclusion list to.
     pub fn set_exclusion_list(&mut self, list: Vec<String>) {
         let mut traffic_filter = self.traffic_filter.lock().unwrap();
         traffic_filter.set_filter_list(list);
@@ -431,6 +431,9 @@ impl Proxy {
     }
 
     /// Send an event to add a value to the current exclusion list
+    ///
+    /// # Arguments:
+    /// * `event_type` - A ProxyExclusionUpdateKind to Edit/Add/Remove an item in the current exclusion list.
     pub fn update_exclusion_list(&mut self, event_type: ProxyExclusionUpdateKind) {
         match event_type {
             ProxyExclusionUpdateKind::Edit => {
@@ -452,11 +455,11 @@ impl Proxy {
     }
 }
 
-/// Handles termination of the service
+/// Handles termination of the service.
 ///
 /// # Arguments
-/// * `event` - The event sender to write current state
-/// * `status` - The current ProxyEvent status
+/// * `event` - The event sender to write current state.
+/// * `status` - The current ProxyEvent status.
 async fn handle_termination(
     event: Option<std::sync::mpsc::Sender<ProxyEvent>>,
     status: Arc<Mutex<ProxyEvent>>,
@@ -467,47 +470,40 @@ async fn handle_termination(
         thread::sleep(Duration::from_millis(1000));
 
         let status = match status.lock() {
-            Ok(status) => status,
-            Err(poisoned) => poisoned.into_inner(),
+            Ok(status) => status.clone(),
+            Err(_) => ProxyEvent::Terminating,
         };
 
-        match *status {
-            ProxyEvent::Terminating => {
-                let _ = shutdown_sig.send(());
-                break;
-            }
-            _ => (),
-        };
+        if status == ProxyEvent::Terminating {
+            shutdown_sig.send(()).unwrap();
+            break;
+        }
     });
 
-    match shutdown_rec.await {
-        Ok(_) => {
-            if let Some(event) = event {
-                event.send(ProxyEvent::Terminated).unwrap();
-            }
+    if let Ok(_) = shutdown_rec.await {
+        if let Some(event) = event {
+            event.send(ProxyEvent::Terminated).unwrap();
         }
-        Err(_) => {}
     }
 }
 
-/// Handle a server request
+/// Handle a server request.
 ///
 /// # Arguments:
-/// * `request` - The request to proxy
-/// * `event` - An internal event sender, to change the Proxy state
-/// * `traffic_filter` - The current TrafficFilter configuration
+/// * `request` - The request to proxy.
+/// * `event` - An internal event sender, to change the Proxy state.
+/// * `traffic_filter` - The current TrafficFilter configuration.
+/// * `logger` - The current logger to log events to.
 async fn handle_request(
     request: Request<hyper::body::Incoming>,
     event: Option<std::sync::mpsc::Sender<ProxyEvent>>,
     traffic_filter: TrafficFilter,
+    logger: Logger,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     let request_uri = request.uri().to_string();
 
     let is_excluded_address = traffic_filter.in_filter_list(&request_uri);
-    let is_traffic_blocking = match traffic_filter.get_filter_type() {
-        TrafficFilterType::Allow => false,
-        TrafficFilterType::Deny => true,
-    };
+    let is_traffic_blocking = traffic_filter.is_blocking();
 
     if traffic_filter.get_enabled() {
         let is_blocking_but_exluded = !is_excluded_address && is_traffic_blocking;
@@ -515,13 +511,27 @@ async fn handle_request(
         let blocked = is_allowing_but_excluded || is_blocking_but_exluded;
 
         // Log the event
-        let logger = ProxyRequestLog {
+        let request_log = ProxyRequestLog {
             method: request.method().to_string(),
             request: request_uri,
             blocked: blocked,
         };
+
+        logger.debug(
+            format!(
+                "{} -> Request to: {} -> {}",
+                request_log.method,
+                request_log.request,
+                request_log.to_blocked_string()
+            )
+            .as_str(),
+        );
+
+        // Record the request
         if let Some(event) = event {
-            event.send(ProxyEvent::RequestEvent(logger)).unwrap();
+            event
+                .send(ProxyEvent::RequestEvent(request_log.clone()))
+                .unwrap();
         }
 
         if blocked {
@@ -531,14 +541,19 @@ async fn handle_request(
         }
     }
 
-    if Method::CONNECT == request.method() {
+    // Proxy socket requests
+    if request.method() == Method::CONNECT {
         if let Some(addr) = get_host_address(request.uri()) {
             tokio::task::spawn(async move {
                 match hyper::upgrade::on(request).await {
                     Ok(upgraded) => {
-                        let _ = tunnel(upgraded, addr).await;
+                        if let Err(message) = tunnel(upgraded, addr).await {
+                            logger.error(&message.to_string());
+                        };
                     }
-                    Err(_) => {}
+                    Err(message) => {
+                        logger.error(&message.to_string());
+                    }
                 }
             });
 
@@ -548,41 +563,48 @@ async fn handle_request(
             *resp.status_mut() = http::StatusCode::BAD_REQUEST;
             return Ok(resp);
         }
+    }
+
+    // Proxy web requests
+    if let Some(host) = request.uri().host() {
+        let port = request.uri().port_u16().unwrap_or(80);
+
+        let stream = TcpStream::connect((host, port)).await.unwrap();
+        let io = TokioIo::new(stream);
+
+        let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+            .preserve_header_case(true)
+            .title_case_headers(true)
+            .handshake(io)
+            .await?;
+
+        tokio::task::spawn(async move {
+            if let Err(message) = conn.await {
+                logger.error(&message.to_string());
+            };
+        });
+
+        let response = sender.send_request(request).await?;
+        return Ok(response.map(|b| b.boxed()));
     } else {
-        match request.uri().host() {
-            Some(host) => {
-                let port = request.uri().port_u16().unwrap_or(80);
-
-                let stream = TcpStream::connect((host, port)).await.unwrap();
-                let io = TokioIo::new(stream);
-
-                let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-                    .preserve_header_case(true)
-                    .title_case_headers(true)
-                    .handshake(io)
-                    .await?;
-
-                tokio::task::spawn(async move {
-                    let _ = conn.await;
-                });
-
-                let response = sender.send_request(request).await?;
-                Ok(response.map(|b| b.boxed()))
-            }
-            None => {
-                let mut resp = Response::new(full("Host address could not be processed."));
-                *resp.status_mut() = http::StatusCode::BAD_REQUEST;
-                return Ok(resp);
-            }
-        }
+        logger.debug(
+            format!(
+                "Host address could not be found for: {}",
+                request.uri().to_string()
+            )
+            .as_str(),
+        );
+        let mut response = Response::new(full("Host address could not be processed."));
+        *response.status_mut() = http::StatusCode::BAD_REQUEST;
+        return Ok(response);
     }
 }
 
-/// Tunnel a connection bidirectionally
+/// Tunnel a connection bidirectionally.
 ///
 /// # Arguments:
-/// * `upgraded` - The upgraded connection to copy data to/from
-/// * `address` - The target address to copy data to/from
+/// * `upgraded` - The upgraded connection to copy data to/from.
+/// * `address` - The target address to copy data to/from.
 async fn tunnel(upgraded: Upgraded, address: String) -> std::io::Result<()> {
     let mut server = TcpStream::connect(address).await?;
     let mut upgraded_connection = TokioIo::new(upgraded);
@@ -592,22 +614,22 @@ async fn tunnel(upgraded: Upgraded, address: String) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Get the current URI's host address
+/// Get the current URI's host address.
 ///
 /// # Arguments
-/// * `uri` - The given URI
-fn get_host_address(uri: &http::Uri) -> Option<String> {
+/// * `uri` - The given URI.
+fn get_host_address(uri: &Uri) -> Option<String> {
     uri.authority().and_then(|auth| Some(auth.to_string()))
 }
 
-/// Create an empty response body
+/// Create an empty response body.
 fn empty() -> BoxBody<Bytes, hyper::Error> {
     Empty::<Bytes>::new()
         .map_err(|never| match never {})
         .boxed()
 }
 
-/// Create an body from the given bytes
+/// Create an body from the given bytes.
 fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
     Full::new(chunk.into())
         .map_err(|never| match never {})

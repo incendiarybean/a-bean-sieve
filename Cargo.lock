@@ -3,6 +3,25 @@
 version = 3
 
 [[package]]
+name = "a-bean-sieve"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "colored",
+ "csv",
+ "eframe",
+ "egui_extras",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "image",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2741,25 +2760,6 @@ name = "profiling"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43d84d1d7a6ac92673717f9f6d1518374ef257669c24ebc5ac25d5033828be58"
-
-[[package]]
-name = "proxy-address-blocker"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "colored",
- "csv",
- "eframe",
- "egui_extras",
- "http-body-util",
- "hyper",
- "hyper-util",
- "image",
- "rfd",
- "serde",
- "serde_json",
- "tokio",
-]
 
 [[package]]
 name = "quick-xml"

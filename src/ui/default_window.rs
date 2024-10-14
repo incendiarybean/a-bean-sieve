@@ -1,14 +1,13 @@
-use eframe::{
-    egui::{self, CentralPanel, Rounding},
-    epaint::{Color32, Stroke},
-};
-
 use crate::{
     service::{
         proxy::{Proxy, ProxyView},
         traffic_filter::TrafficFilter,
     },
     ui::main_body,
+};
+use eframe::{
+    egui::{self, CentralPanel, Rounding},
+    epaint::{Color32, Stroke},
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]

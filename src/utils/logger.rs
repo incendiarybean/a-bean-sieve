@@ -1,7 +1,6 @@
-use std::sync::{Arc, Mutex};
-
 use colored::{ColoredString, Colorize};
 use eframe::egui::Color32;
+use std::sync::{Arc, Mutex};
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, Default, PartialEq, PartialOrd)]
 pub enum LogLevel {

@@ -28,26 +28,8 @@ With the deny list, requests are blocked by default and only items in the exclus
 
 Eventually you will be able to Import/Export these lists into CSV - by default, previous sessions are saved so lists and settings remain the same between application runs.
 
-### Feature Plans:
+### Issues and Feature tracking:
 
-The following are my currently designated tasks, they may not be completed in order.
+Please check the TODO file for more information on planned features and known issues.
 
-- [] Add dynamic filtering and requests logs.
-- [x] Create dynamic allow & deny lists.
-- [] Allow exports of allow & deny lists.
-- [] Allow imports of allow & deny lists.
-- [] Maybe enable remote running & certificate allocation.
-- [] Add ability to run as a non-GUI application (use flags?).
-- [x] Allow dragging?
-- [] Window Resizing?
-- [] Logging Filtering?
-- [x] State Saving (the rest of it). [^1]
-
-### Known Issues:
-
-- State doesn't save correctly.
-- Input box for Port & Start Proxy button aren't completely aligned.
-
-### Other Notes:
-
-[^1]: Some state is saved, however, due to Mutex not working correctly, some values no longer change after state recovery.
+The TODO file can be found [here](TODO.md).

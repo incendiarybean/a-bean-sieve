@@ -1,12 +1,4 @@
-use std::path::PathBuf;
-
-use colored::Colorize;
-use eframe::{
-    egui::{self, vec2, CentralPanel, Layout, RichText, TextEdit},
-    emath::Align,
-    epaint::{Color32, Vec2},
-};
-
+use super::custom_widgets::toggle_ui;
 use crate::service::{
     proxy::{
         Proxy, ProxyEvent, ProxyExclusionRow, ProxyExclusionUpdateKind, ProxyRequestLog, ProxyView,
@@ -17,8 +9,13 @@ use crate::utils::{
     csv_handler::{read_from_csv, write_csv_from_vec},
     logger::LogLevel,
 };
-
-use super::custom_widgets::toggle_ui;
+use colored::Colorize;
+use eframe::{
+    egui::{self, vec2, CentralPanel, Layout, RichText, TextEdit},
+    emath::Align,
+    epaint::{Color32, Vec2},
+};
+use std::path::PathBuf;
 
 pub fn main_body(proxy: &mut Proxy, ui: &mut egui::Ui) {
     let panel_frame = egui::Frame {
