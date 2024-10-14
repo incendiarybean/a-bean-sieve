@@ -3,7 +3,7 @@ use colored::Colorize;
 use service::{proxy::Proxy, traffic_filter::TrafficFilter};
 use std::{process::exit, thread::sleep, time::Duration};
 
-use crate::service;
+use crate::service::{self, traffic_filter::TrafficFilterType};
 
 use super::logger::LogLevel;
 
@@ -12,6 +12,9 @@ enum Flag {
     CommandLine,
     Port,
     LogLevel,
+    TrafficFilter,
+    TrafficFilterType,
+    TrafficFilterList,
     Help,
     Value,
 }
@@ -23,6 +26,9 @@ impl From<&String> for Flag {
             "--no-ui" => Flag::CommandLine,
             "--port" | "-p" => Flag::Port,
             "--log-level" | "-l" => Flag::LogLevel,
+            "--filter" | "-f" => Flag::TrafficFilter,
+            "--filter-type" | "-ft" => Flag::TrafficFilterType,
+            "--filter-list" | "-fl" => Flag::TrafficFilterList,
             "--help" | "-h" => Flag::Help,
             // Default to Value, if it isn't a flag
             _ => Flag::Value,
@@ -34,8 +40,7 @@ impl Flag {
     /// Check whether the provided flag requires a value to be passed with it
     fn requires_value(&self) -> bool {
         match self {
-            Flag::Port => true,
-            Flag::LogLevel => true,
+            Flag::Port | Flag::LogLevel | Flag::TrafficFilterType | Flag::TrafficFilterList => true,
             _ => false,
         }
     }
@@ -45,6 +50,9 @@ pub struct CommandLineAdapter {
     command_line: bool,
     port: String,
     log_level: LogLevel,
+    traffic_filter: bool,
+    traffic_filter_type: TrafficFilterType,
+    _traffic_filter_list: Vec<String>,
 }
 
 impl Default for CommandLineAdapter {
@@ -53,6 +61,9 @@ impl Default for CommandLineAdapter {
             command_line: false,
             port: String::from("8080"),
             log_level: LogLevel::Info,
+            traffic_filter: false,
+            traffic_filter_type: TrafficFilterType::Allow,
+            _traffic_filter_list: Vec::<String>::new(),
         }
     }
 }
@@ -128,6 +139,24 @@ impl CommandLineAdapter {
                                 self.log_level = LogLevel::from(value);
                             }
                         }
+                        Flag::TrafficFilter => self.traffic_filter = true,
+                        Flag::TrafficFilterType => {
+                            if !self.traffic_filter {
+                                self.traffic_filter = true;
+                            }
+
+                            if let Some(value) = current_flag_value {
+                                match value.to_lowercase().as_str() {
+                                    "allow" => self.traffic_filter_type = TrafficFilterType::Allow,
+                                    "deny" => self.traffic_filter_type = TrafficFilterType::Deny,
+                                    _ => {
+                                        return Err(format!(
+                                            "Value: {value} is not one of ['ALLOW', 'DENY']."
+                                        ))
+                                    }
+                                }
+                            }
+                        }
                         _ => {
                             self.usage();
                             exit(0)
@@ -141,10 +170,14 @@ impl CommandLineAdapter {
 
     /// Run the Proxy as a CMD process.
     pub fn run(&self) {
+        let mut traffic_filter = TrafficFilter::default();
+        traffic_filter.set_enabled(self.traffic_filter);
+        traffic_filter.set_filter_type(self.traffic_filter_type);
+
         let mut proxy = Proxy::new(
             self.port.clone(),
             service::proxy::ProxyView::Min,
-            TrafficFilter::default(),
+            traffic_filter,
             self.log_level.clone(),
         );
 
