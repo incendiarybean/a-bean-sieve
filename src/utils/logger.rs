@@ -14,23 +14,14 @@ pub enum LogLevel {
 
 impl From<&String> for LogLevel {
     fn from(value: &String) -> Self {
-        if &String::from("debug") == &value.to_lowercase() {
-            return LogLevel::Debug;
+        match value.to_lowercase().as_str() {
+            "debug" => LogLevel::Debug,
+            "info" => LogLevel::Info,
+            "warning" => LogLevel::Warning,
+            "error" => LogLevel::Error,
+            // Default to Info
+            _ => LogLevel::Info,
         }
-
-        if &String::from("info") == &value.to_lowercase() {
-            return LogLevel::Info;
-        }
-
-        if &String::from("warning") == &value.to_lowercase() {
-            return LogLevel::Warning;
-        }
-
-        if &String::from("error") == &value.to_lowercase() {
-            return LogLevel::Error;
-        }
-
-        LogLevel::Info
     }
 }
 
