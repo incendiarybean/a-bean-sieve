@@ -14,6 +14,7 @@ use std::{
 };
 use tokio::net::{TcpListener, TcpStream};
 
+/// The enum that controls the current Proxy status, e.g. Running, Stopped.
 #[derive(Debug, PartialEq, Clone, Default)]
 pub enum ProxyEvent {
     Starting,
@@ -26,7 +27,8 @@ pub enum ProxyEvent {
     RequestEvent(ProxyRequestLog),
 }
 
-impl std::string::ToString for ProxyEvent {
+impl ToString for ProxyEvent {
+    /// Converts the ProxyEvent to a readable string.
     fn to_string(&self) -> String {
         let current_proxy_status = match self {
             ProxyEvent::Starting => String::from("STARTING"),
@@ -42,8 +44,8 @@ impl std::string::ToString for ProxyEvent {
     }
 }
 
+/// Contains the information regarding the selected exclusion list value.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
-#[serde(default)]
 pub struct ProxyExclusionRow {
     pub updating: bool,
     pub index: usize,
@@ -60,12 +62,14 @@ impl Default for ProxyExclusionRow {
     }
 }
 
+/// The enum that controls the action being taken when updating an exclusion list value.
 pub enum ProxyExclusionUpdateKind {
     Edit,
     Add,
     Remove,
 }
 
+/// Contains the information regarding a request made through the Proxy.
 #[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct ProxyRequestLog {
     pub method: String,
@@ -74,6 +78,7 @@ pub struct ProxyRequestLog {
 }
 
 impl ProxyRequestLog {
+    /// Converts the exclusion status of a request to readable string.
     fn to_blocked_string(&self) -> String {
         match self.blocked {
             true => String::from("BLOCKED"),
@@ -82,6 +87,7 @@ impl ProxyRequestLog {
     }
 }
 
+/// The enum that carries which UI Window is currently active.
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default)]
 pub enum ProxyView {
     #[default]
@@ -91,6 +97,7 @@ pub enum ProxyView {
 }
 
 impl ToString for ProxyView {
+    /// Convert the ProxyView enum to a readable string.
     fn to_string(&self) -> String {
         match self {
             ProxyView::Min => String::from("Default View"),
@@ -138,6 +145,7 @@ pub struct Proxy {
     pub run_time: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
+/// Creates a new Proxy from default values.
 impl Default for Proxy {
     fn default() -> Self {
         let logger = Logger::default();
@@ -534,6 +542,7 @@ async fn handle_request(
                 .unwrap();
         }
 
+        // Return a generic response if the request was blocked
         if blocked {
             let mut resp = Response::new(full("Oopsie Whoopsie!"));
             *resp.status_mut() = http::StatusCode::FORBIDDEN;

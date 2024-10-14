@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use std::sync::Arc;
+
 pub mod service;
 pub mod ui;
 pub mod utils;
