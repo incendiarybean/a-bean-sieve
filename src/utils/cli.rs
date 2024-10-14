@@ -1,11 +1,11 @@
 use colored::Colorize;
 
 use service::{proxy::Proxy, traffic_filter::TrafficFilter};
-use std::{process::exit, thread::sleep, time::Duration};
+use std::{path::PathBuf, process::exit, thread::sleep, time::Duration};
 
 use crate::service::{self, traffic_filter::TrafficFilterType};
 
-use super::logger::LogLevel;
+use super::{csv_handler::read_from_csv, logger::LogLevel};
 
 #[derive(PartialEq, Debug)]
 enum Flag {
@@ -52,7 +52,7 @@ pub struct CommandLineAdapter {
     log_level: LogLevel,
     traffic_filter: bool,
     traffic_filter_type: TrafficFilterType,
-    _traffic_filter_list: Vec<String>,
+    traffic_filter_list: Vec<String>,
 }
 
 impl Default for CommandLineAdapter {
@@ -63,7 +63,7 @@ impl Default for CommandLineAdapter {
             log_level: LogLevel::Info,
             traffic_filter: false,
             traffic_filter_type: TrafficFilterType::Allow,
-            _traffic_filter_list: Vec::<String>::new(),
+            traffic_filter_list: Vec::<String>::new(),
         }
     }
 }
@@ -93,7 +93,7 @@ impl CommandLineAdapter {
             "  --filter | -f : Whether the traffic filter is enabled or not (default is true when --filter-type or --filter-list flags are provided."
         );
         println!("  --filter-type | -l : The filter type, one of ['allow', 'deny'].");
-        println!("  --filter-list | -fl : The exclusion list to apply to the filter.");
+        println!("  --filter-list | -fl : The path to the exclusion list to import, e.g. './exclusion-list.csv'.");
         println!("  --help | -h : Print usage and flags.");
         println!("");
 
@@ -165,6 +165,25 @@ impl CommandLineAdapter {
                                 }
                             }
                         }
+                        Flag::TrafficFilterList => {
+                            if !self.traffic_filter {
+                                self.traffic_filter = true;
+                            }
+
+                            if let Some(value) = current_flag_value {
+                                match read_from_csv::<String, PathBuf>(value.into()) {
+                                    Ok(list) => {
+                                        self.traffic_filter_list = list;
+                                    }
+                                    Err(message) => {
+                                        return Err(format!(
+                                            "CSV could not be imported - {}",
+                                            message.to_string()
+                                        ))
+                                    }
+                                }
+                            }
+                        }
                         _ => {
                             self.usage();
                             exit(0)
@@ -181,6 +200,7 @@ impl CommandLineAdapter {
         let mut traffic_filter = TrafficFilter::default();
         traffic_filter.set_enabled(self.traffic_filter);
         traffic_filter.set_filter_type(self.traffic_filter_type);
+        traffic_filter.set_filter_list(self.traffic_filter_list.clone());
 
         let mut proxy = Proxy::new(
             self.port.clone(),
