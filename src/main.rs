@@ -3,9 +3,9 @@
 use eframe::egui;
 use std::sync::Arc;
 
-pub mod service;
-pub mod ui;
-pub mod utils;
+mod service;
+mod ui;
+mod utils;
 
 fn main() -> Result<(), eframe::Error> {
     let icon: &[u8] = include_bytes!("assets/icon.png");
