@@ -12,6 +12,28 @@ pub enum LogLevel {
     Global = -1,
 }
 
+impl From<&String> for LogLevel {
+    fn from(value: &String) -> Self {
+        if &String::from("debug") == &value.to_lowercase() {
+            return LogLevel::Debug;
+        }
+
+        if &String::from("info") == &value.to_lowercase() {
+            return LogLevel::Info;
+        }
+
+        if &String::from("warning") == &value.to_lowercase() {
+            return LogLevel::Warning;
+        }
+
+        if &String::from("error") == &value.to_lowercase() {
+            return LogLevel::Error;
+        }
+
+        LogLevel::Info
+    }
+}
+
 impl ToString for LogLevel {
     fn to_string(&self) -> String {
         match self {
