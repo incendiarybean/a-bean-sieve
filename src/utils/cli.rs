@@ -77,20 +77,28 @@ impl CommandLineAdapter {
     /// Print a usage message in the terminal.
     fn usage(&self) {
         println!("");
-        println!("{}", "Available Flags:".blue());
-        println!("  --no-ui : Use the tool in CLI mode.");
-        println!("  --port : Choose the port to run the proxy on.");
-        println!(
-            "  --log-level : The logging level, one of ['debug', 'info', 'warning', 'error']."
-        );
-        println!("  --help : Print usage and flags.");
-        println!("");
         println!("{}", "Example Usage:".blue());
         println!(
             "  {}",
             "a-bean-sieve.exe --no-gui --port 8080 --log-level INFO".yellow()
         );
         println!("");
+        println!("{}", "Available Flags:".blue());
+        println!("  --no-ui : Use the tool in CLI mode.");
+        println!("  --port | -p : Choose the port to run the proxy on.");
+        println!(
+            "  --log-level | -l : The logging level, one of ['debug', 'info', 'warning', 'error']."
+        );
+        println!(
+            "  --filter | -f : Whether the traffic filter is enabled or not (default is true when --filter-type or --filter-list flags are provided."
+        );
+        println!("  --filter-type | -l : The filter type, one of ['allow', 'deny'].");
+        println!("  --filter-list | -fl : The exclusion list to apply to the filter.");
+        println!("  --help | -h : Print usage and flags.");
+        println!("");
+
+        println!("{}", "Further Information:".blue());
+        println!("  Find more on the GitHub: https://github.com/incendiarybean/a-bean-sieve");
     }
 
     /// Map arguments passed to the application to CommandLineAdapter values.
