@@ -54,8 +54,8 @@ Once you view requests passing through the service, you can choose to add specif
 ### Exclusions
 There are 2 options of exclusions:
 
-    - Deny
-    - Allow
+- Deny
+- Allow
 
 #### Deny
 Deny means that all requests will be denied by default.
@@ -83,9 +83,9 @@ You can export any of your configurations into a CSV file that can be used to re
 
 Currently supported exports:
 
-    - Requests List
-    - Allow List
-    - Deny List
+- Requests List
+- Allow List
+- Deny List
 
 By default, while using the Application with its UI, the UI will store previous state - so you will not need to export/re-import everytime you use the application.
 
