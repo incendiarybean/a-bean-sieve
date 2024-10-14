@@ -51,11 +51,25 @@ Point any application you wish to run through the service by using the assigned 
 
 Once you view requests passing through the service, you can choose to add specific requests to an exclusion list.
 
+### Standard Usage
+
+Without adding an exclusions, you can still monitor all requests being made through the proxy, including the status of these requests.
+
+You can export any of your configurations into a CSV file that can be used to re-import these settings later.
+
+Currently supported exports:
+
+- Requests List
+- Allow List
+- Deny List
+
+By default, while using the Application with its UI, the UI will store previous state - so you will not need to export/re-import everytime you use the application.
+
 ### Exclusions
 There are 2 options of exclusions:
 
-- Deny
-- Allow
+- [Deny](#deny)
+- [Allow](#allow)
 
 #### Deny
 Deny means that all requests will be denied by default.
@@ -74,20 +88,6 @@ Choosing Allow will create an `Deny List`.
 With the `Deny List`, requests are allowed by default and only items added to this exclusion list are blocked.
 
 > **Example:** The `Deny List` list could contain *google.com* and when in use, only addresses containing variations of *google.com* are denied.
-
-### Standard Usage
-
-Without adding an exclusions, you can still monitor all requests being made through the proxy, including the status of these requests.
-
-You can export any of your configurations into a CSV file that can be used to re-import these settings later.
-
-Currently supported exports:
-
-- Requests List
-- Allow List
-- Deny List
-
-By default, while using the Application with its UI, the UI will store previous state - so you will not need to export/re-import everytime you use the application.
 
 ## Issues and Feature tracking:
 
