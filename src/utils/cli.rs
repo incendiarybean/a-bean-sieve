@@ -1,11 +1,8 @@
+use super::{csv_handler::read_from_csv, logger::LogLevel};
+use crate::service::{self, traffic_filter::TrafficFilterType};
 use colored::Colorize;
-
 use service::{proxy::Proxy, traffic_filter::TrafficFilter};
 use std::{path::PathBuf, process::exit, thread::sleep, time::Duration};
-
-use crate::service::{self, traffic_filter::TrafficFilterType};
-
-use super::{csv_handler::read_from_csv, logger::LogLevel};
 
 #[derive(PartialEq, Debug)]
 enum Flag {
@@ -44,9 +41,21 @@ impl Flag {
             _ => false,
         }
     }
+
+    fn requires_flag(&self) -> Vec<Flag> {
+        match self {
+            Flag::Port => vec![Flag::CommandLine],
+            Flag::LogLevel => vec![Flag::CommandLine],
+            Flag::TrafficFilter => vec![Flag::CommandLine],
+            Flag::TrafficFilterType => vec![Flag::CommandLine, Flag::TrafficFilter],
+            Flag::TrafficFilterList => vec![Flag::CommandLine, Flag::TrafficFilter],
+            _ => vec![],
+        }
+    }
 }
 
 pub struct CommandLineAdapter {
+    provided_flags: Vec<Flag>,
     command_line: bool,
     port: String,
     log_level: LogLevel,
@@ -57,7 +66,13 @@ pub struct CommandLineAdapter {
 
 impl Default for CommandLineAdapter {
     fn default() -> Self {
+        let provided_flags = std::env::args()
+            .map(|argument| Flag::from(&argument))
+            .filter(|flag| flag != &Flag::Value)
+            .collect::<Vec<Flag>>();
+
         Self {
+            provided_flags,
             command_line: false,
             port: String::from("8080"),
             log_level: LogLevel::Info,
@@ -109,6 +124,17 @@ impl CommandLineAdapter {
 
         // If previous value was a flag, we've already processed the parameter
         let mut skip_parameter = false;
+
+        for flag in &self.provided_flags {
+            for requirement in flag.requires_flag() {
+                if !self.provided_flags.contains(&requirement) {
+                    return Err(format!(
+                        "Flag: {:?}, requires another flag that has not been provided: {:?}.",
+                        flag, requirement
+                    ));
+                }
+            }
+        }
 
         // Loop through each argument, if a Flag is the current argument find the value
         for (index, argument) in arguments.iter().enumerate() {

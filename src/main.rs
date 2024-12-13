@@ -12,7 +12,7 @@ fn main() {
     let mut commandline = CommandLineAdapter::default();
     commandline
         .map_arg_to_flag()
-        .expect("Could not parse provided flags:");
+        .expect("Could not parse provided flags");
 
     if commandline.cmd_only() {
         commandline.run();
@@ -21,7 +21,6 @@ fn main() {
         let img: image::DynamicImage = image::load_from_memory(icon).unwrap();
 
         let options = eframe::NativeOptions {
-            follow_system_theme: true,
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_decorations(true)
                 .with_min_inner_size(egui::vec2(250.0, 160.0))
@@ -43,6 +42,6 @@ fn main() {
                 Ok(Box::new(ui::default_window::MainWindow::new(cc)))
             }),
         )
-        .expect("Could not launch UI:")
+        .expect("Could not launch UI")
     }
 }

@@ -24,6 +24,7 @@ These list are mostly for personal reference so I can remember what I wanted to 
 - [ ] HTTPS support?
 - [x] State Saving (the rest of it). [^1]
 - [ ] Enable CLI only flags
+- [ ] Optional pop-out logs window
 
 ## Issues
 - [x] Input box for Port & Start Proxy button aren't completely aligned.
